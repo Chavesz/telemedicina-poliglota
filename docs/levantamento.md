@@ -23,12 +23,12 @@ Legenda: ✅ feito · 🟡 parcial · ❌ falta
 | Neo4j: nós Paciente, Diagnostico, Medicamento, Medico | ✅ | |
 | Neo4j: interações medicamentosas (contraindicação cruzada) | ✅ | 3 consultas: uso atual, mesma receita e alergia |
 | Neo4j: diagnósticos correlacionados em cadeia | ✅ | caminho variável `*1..N` |
-| Neo4j: "histórico epidemiológico" | 🟡 | falta uma consulta agregada (ex.: diagnósticos mais comuns, pacientes com o mesmo CID) |
+| Neo4j: "histórico epidemiológico" | ✅ | aba no Mapa Clínico: diagnósticos mais frequentes, comorbidades e pacientes com o mesmo CID (+ aggregation equivalente no Mongo) |
 
 ## 3. Telas mínimas no Streamlit
 | Tela pedida | Situação | Observação |
 |---|---|---|
-| Prontuário & Atendimento (histórico, edição flexível de diagnósticos, upload de laudo) | 🟡 | histórico e upload ok; **não dá para editar um diagnóstico que já foi registrado**, só criar uma consulta nova |
+| Prontuário & Atendimento (histórico, edição flexível de diagnósticos, upload de laudo) | ✅ | botão "Editar diagnóstico" em cada consulta: `$set` posicional + histórico em `alteracoes` + sincroniza o grafo |
 | Recepção virtual & fila (pacientes aguardando + agenda do dia via Redis) | ✅ | |
 | Mapeamento clínico & alertas (teia de diagnósticos + alertas automáticos) | ✅ | grafo em graphviz (estático) |
 | Finalização (laudo/receita no Mongo + status da fila no Redis) | ✅ | está dentro da tela de Prontuário; pode virar tela própria |
@@ -38,14 +38,14 @@ Legenda: ✅ feito · 🟡 parcial · ❌ falta
 |---|---|---|
 | Integração arquitetural (25%) | baixo | justificativas já estão no README |
 | Modelagem / Cypher (20%) | baixo | incluir diagrama do grafo e das chaves Redis nos slides |
-| Streamlit + **tratamento de erros** (25%) | **médio** | várias telas quebram se um banco estiver fora (ex.: Recepção chama o Mongo sem `try`). Envolver todas as chamadas e mostrar mensagem amigável |
+| Streamlit + **tratamento de erros** (25%) | baixo | ✅ `erro_amigavel()` identifica qual banco caiu e explica o impacto; todas as telas passam por ele; finalização trata falha de cada banco separadamente |
 | Defesa oral (30%) | **alto** | todos precisam saber explicar o código; ver seção 6 |
 
 ## 5. Melhorias que valem pontos (do protótipo `docs/prototipo.html`)
-- ❌ **Painel "o que cada banco fez"** no Streamlit. O enunciado pede para mostrar "as chamadas e atualizações acontecendo nos três bancos simultaneamente" na demo. É o item extra mais importante.
+- ✅ **Painel "o que cada banco fez"** no Streamlit (tela "Painel dos Bancos" + últimos comandos na barra lateral + checklist ao finalizar). O enunciado pede para mostrar "as chamadas e atualizações acontecendo nos três bancos simultaneamente" na demo. É o item extra mais importante.
 - ❌ Aba **Comparativo** (pontos fortes/fracos, Cypher × SQL).
 - ❌ Botão **simular queda do Redis** (fila some, prontuário fica).
-- ❌ Botão **simular expiração da sessão** (mostra o TTL funcionando).
+- ✅ Botão **simular expiração da sessão** (mostra o TTL funcionando).
 - 🟡 Grafo interativo (hoje é imagem estática).
 
 ## 6. Apresentação
@@ -53,6 +53,16 @@ Legenda: ✅ feito · 🟡 parcial · ❌ falta
 - ❌ Ensaio da demo cronometrado.
 - ⚠️ **Tempo conflitante no enunciado**: a seção 6 diz "até **10 minutos** por grupo", mas as partes somam 25–32 min. Confirmar com o professor.
 - ❌ Cada integrante estudar o seu arquivo (`docs/divisao.md`) e as perguntas prováveis.
+
+## 6.1 Feito no branch `telemedicina-poliglota-2.0`
+- Log de comandos dos 3 bancos (`db/oplog.py`) + tela **Painel dos Bancos** (contagens, chaves Redis com TTL, log filtrável).
+- **Tratamento de erros** centralizado por banco.
+- **Edição de diagnóstico** de consulta já registrada (Mongo + Neo4j sincronizados).
+- **Histórico epidemiológico** (Cypher) e aggregation pipeline equivalente no Mongo.
+- **Auditoria LGPD** (coleção `auditoria`): abrir prontuário, editar, anexar laudo e registrar consulta.
+- **Invalidação de cache**: ao finalizar, a agenda vira "Atendido" no Mongo e `cache:agenda:hoje` é apagado.
+- **Seed coerente**: o prontuário no Mongo agora tem as mesmas consultas que o grafo.
+- Botão **simular expiração da sessão**.
 
 ## 7. Observações técnicas
 - O enunciado traz credenciais de um Neo4j AuraDB. Se usarem, coloquem **só no `.env`** (que não vai para o GitHub), nunca no código. Com Aura, não precisa de Docker para o Neo4j.
