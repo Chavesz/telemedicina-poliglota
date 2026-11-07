@@ -1,0 +1,439 @@
+<title>Telemedicina Poliglota</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: console clínico em duas colunas — tela do sistema à esquerda, "o que o banco fez" à direita */
+:root{
+  --bg:#f3f6f6; --surface:#ffffff; --line:#d9e1e2; --fg:#14232a; --muted:#5b6d74; --accent:#0e6e74;
+  --mongo:#2f8a4a; --redis:#c2392b; --neo:#2a62b8; --warn:#b26b00; --crit:#b3261e; --ok:#2f8a4a;
+  --mongo-bg:#e6f3ea; --redis-bg:#fbe9e7; --neo-bg:#e7eef9; --crit-bg:#fdecea; --warn-bg:#fff4e0;
+  --code-bg:#0f1c21; --code-fg:#d6e4e6;
+  --f-ui:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0d171b; --surface:#13222a; --line:#24363e; --fg:#e3eced; --muted:#8fa3a9; --accent:#4cc2c8;
+  --mongo:#5cc27a; --redis:#ef6f60; --neo:#6f9be6; --warn:#e6a23c; --crit:#f07167; --ok:#5cc27a;
+  --mongo-bg:#132b1d; --redis-bg:#33171a; --neo-bg:#152238; --crit-bg:#3a1616; --warn-bg:#33260f;
+  --code-bg:#081014; --code-fg:#cfe0e2; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0d171b; --surface:#13222a; --line:#24363e; --fg:#e3eced; --muted:#8fa3a9; --accent:#4cc2c8;
+  --mongo:#5cc27a; --redis:#ef6f60; --neo:#6f9be6; --warn:#e6a23c; --crit:#f07167; --ok:#5cc27a;
+  --mongo-bg:#132b1d; --redis-bg:#33171a; --neo-bg:#152238; --crit-bg:#3a1616; --warn-bg:#33260f;
+  --code-bg:#081014; --code-fg:#cfe0e2; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:15px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px 40px}
+h1,h2,h3{text-wrap:balance;margin:0;line-height:1.2}
+h1{font-size:1.35rem;font-weight:700}
+h2{font-size:1.1rem;font-weight:600}
+h3{font-size:.95rem;font-weight:600}
+.wrap{max-width:1240px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px}
+.brand{display:flex;flex-direction:column;gap:2px}
+.brand small{color:var(--muted);font-size:.82rem}
+.session{font-family:var(--f-mono);font-size:.78rem;color:var(--muted);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:999px;font-size:.74rem;font-weight:600;letter-spacing:.02em;white-space:nowrap}
+.p-mongo{background:var(--mongo-bg);color:var(--mongo)} .p-redis{background:var(--redis-bg);color:var(--redis)} .p-neo{background:var(--neo-bg);color:var(--neo)}
+.p-crit{background:var(--crit-bg);color:var(--crit)} .p-warn{background:var(--warn-bg);color:var(--warn)} .p-ok{background:var(--mongo-bg);color:var(--ok)}
+nav{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line)}
+nav a{padding:9px 14px;color:var(--muted);text-decoration:none;font-weight:600;font-size:.9rem;border-bottom:2px solid transparent;margin-bottom:-1px}
+nav a[aria-current="page"]{color:var(--fg);border-color:var(--accent)}
+nav a:focus-visible,button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px;align-items:start}
+@media (max-width:900px){.grid{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.kpi{border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:2px}
+.kpi b{font-size:1.5rem;font-variant-numeric:tabular-nums}
+.kpi span{font-size:.78rem;color:var(--muted)}
+.label{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+button{font:inherit;font-weight:600;font-size:.88rem;border-radius:7px;padding:8px 14px;cursor:pointer;border:1px solid var(--line);background:var(--surface);color:var(--fg)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+button:disabled{opacity:.45;cursor:not-allowed}
+select,input,textarea{font:inherit;font-size:.9rem;padding:7px 9px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--fg);min-width:0}
+textarea{width:100%;resize:vertical}
+.field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.88rem}
+th{text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:8px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums;vertical-align:top}
+tr.sev-0 td:first-child{box-shadow:inset 3px 0 var(--crit)} tr.sev-1 td:first-child{box-shadow:inset 3px 0 var(--warn)} tr.sev-2 td:first-child{box-shadow:inset 3px 0 var(--line)}
+.mono{font-family:var(--f-mono);font-size:.8rem}
+.muted{color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:.82rem;cursor:pointer;background:var(--surface);color:var(--fg)}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+.alert{border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;font-size:.88rem}
+.alert.crit{background:var(--crit-bg);color:var(--fg);border:1px solid var(--crit)}
+.alert.ok{background:var(--mongo-bg);border:1px solid var(--ok)}
+.alert .ttl{font-weight:700}
+pre.code{background:var(--code-bg);color:var(--code-fg);font-family:var(--f-mono);font-size:.76rem;padding:12px;border-radius:8px;overflow:auto;margin:0;max-height:340px;white-space:pre}
+.log{display:flex;flex-direction:column;gap:8px;max-height:640px;overflow:auto}
+.op{border-left:3px solid var(--line);padding:4px 0 4px 10px;display:flex;flex-direction:column;gap:3px}
+.op.mongo{border-color:var(--mongo)} .op.redis{border-color:var(--redis)} .op.neo{border-color:var(--neo)}
+.op code{font-family:var(--f-mono);font-size:.74rem;white-space:pre-wrap;word-break:break-word}
+.op small{color:var(--muted);font-size:.76rem}
+.hist{display:flex;flex-direction:column;gap:8px}
+.hist .item{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:.86rem}
+.cmp td:first-child{font-weight:600;white-space:nowrap}
+.legend{display:flex;gap:10px;flex-wrap:wrap;font-size:.78rem;color:var(--muted)}
+.legend i{display:inline-block;width:12px;height:3px;vertical-align:middle;margin-right:4px}
+svg text{fill:var(--fg);font-family:var(--f-ui)}
+.login{max-width:420px;margin:40px auto}
+.timer{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.bar>i{display:block;height:100%;background:var(--accent)}
+@media (prefers-reduced-motion:no-preference){.op{animation:in .25s ease-out}@keyframes in{from{transform:translateX(6px)}to{transform:none}}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <h1>Telemedicina Poliglota</h1>
+      <small>Protótipo navegável · dados fictícios · MongoDB + Redis + Neo4j simulados no navegador</small>
+    </div>
+    <div class="session" id="session"></div>
+  </header>
+
+  <section id="loginView" class="panel login" hidden>
+    <h2>Entrar como profissional</h2>
+    <p class="muted" style="margin:0">A senha é conferida no <b>MongoDB</b> (coleção <span class="mono">profissionais</span>). Se estiver certa, o <b>Redis</b> cria um token com validade de 30 minutos.</p>
+    <div class="field"><label class="label" for="lgMed">Profissional</label>
+      <select id="lgMed"></select></div>
+    <button class="primary" id="btnLogin">Entrar</button>
+  </section>
+
+  <div id="appView" hidden>
+    <nav id="tabs">
+      <a href="#recepcao">Recepção & Fila</a>
+      <a href="#prontuario">Prontuário & Atendimento</a>
+      <a href="#mapa">Mapa Clínico</a>
+      <a href="#comparativo">Comparativo dos bancos</a>
+    </nav>
+    <div class="grid" style="margin-top:16px">
+      <main id="screen" class="panel"></main>
+      <aside class="panel">
+        <div class="row" style="justify-content:space-between">
+          <h3>O que cada banco fez</h3>
+          <button id="btnClear" style="padding:4px 10px;font-size:.78rem">Limpar</button>
+        </div>
+        <div class="legend"><span><i style="background:var(--mongo)"></i>MongoDB</span><span><i style="background:var(--redis)"></i>Redis</span><span><i style="background:var(--neo)"></i>Neo4j</span></div>
+        <div class="log" id="log"></div>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================= "BANCOS" SIMULADOS =================
+   Cada estrutura imita o banco real e cada operação registra no painel
+   o comando equivalente (MongoDB / Redis / Cypher). */
+
+// ---------- MongoDB: documentos com esquema flexível ----------
+const mongo = {
+  profissionais:[
+    {crm:"CRM-PB 1001",nome:"Dra. Ana Lima",especialidade:"Clínica Geral"},
+    {crm:"CRM-PB 1002",nome:"Dr. Bruno Souza",especialidade:"Cardiologia"},
+    {crm:"CRM-PB 1003",nome:"Dra. Carla Melo",especialidade:"Endocrinologia"}],
+  pacientes:[
+    {cpf:"111.111.111-11",nome:"José Pereira",nascimento:"1958-03-12",alergias:["Dipirona"],condicoes_cronicas:["Hipertensão","Diabetes tipo 2"],uso_continuo:["Losartana","Metformina"],exames:[{tipo:"Glicemia",valor:145,unidade:"mg/dL"}],prontuario:{consultas:[{data:"2026-08-10",medico:"Dr. Bruno Souza",queixa:"Pressão alta",diagnosticos:["I10"],prescricoes:["Losartana 50mg"]}]}},
+    {cpf:"222.222.222-22",nome:"Maria Santos",nascimento:"1990-07-25",alergias:[],gestante:true,semanas_gestacao:20,uso_continuo:["Ácido Fólico"],prontuario:{consultas:[]}},
+    {cpf:"333.333.333-33",nome:"Carlos Oliveira",nascimento:"1975-11-02",alergias:["Penicilina"],condicoes_cronicas:["Fibrilação atrial"],uso_continuo:["Varfarina"],exames:[{tipo:"INR",valor:2.6}],prontuario:{consultas:[]}},
+    {cpf:"444.444.444-44",nome:"Fernanda Costa",nascimento:"2001-01-15",alergias:[],uso_continuo:[],prontuario:{consultas:[]}},
+    {cpf:"555.555.555-55",nome:"Paulo Ramos",nascimento:"1966-05-30",alergias:["AAS"],condicoes_cronicas:["Asma"],uso_continuo:["Salbutamol"],prontuario:{consultas:[]}}],
+  agenda:[
+    {hora:"08:00",paciente:"José Pereira",medico:"Dr. Bruno Souza",tipo:"Retorno"},
+    {hora:"08:30",paciente:"Maria Santos",medico:"Dra. Ana Lima",tipo:"Pré-natal"},
+    {hora:"09:00",paciente:"Carlos Oliveira",medico:"Dr. Bruno Souza",tipo:"Controle INR"},
+    {hora:"10:00",paciente:"Paulo Ramos",medico:"Dra. Ana Lima",tipo:"Primeira consulta"}],
+  laudos:[]
+};
+
+// ---------- Redis: chave-valor em memória com TTL ----------
+const redis = {store:new Map(), exp:new Map(),
+  _alive(k){const e=this.exp.get(k); if(e && e<Date.now()){this.store.delete(k);this.exp.delete(k);return false} return this.store.has(k)},
+  get(k){return this._alive(k)?this.store.get(k):null},
+  setex(k,s,v){this.store.set(k,v);this.exp.set(k,Date.now()+s*1000)},
+  set(k,v){this.store.set(k,v);this.exp.delete(k)},
+  ttl(k){if(!this._alive(k))return -2;const e=this.exp.get(k);return e?Math.ceil((e-Date.now())/1000):-1},
+  del(k){this.store.delete(k);this.exp.delete(k)},
+  zadd(k,score,m){const z=this.get(k)||new Map();z.set(m,score);this.set(k,z)},
+  zrange(k){const z=this.get(k);return z?[...z.entries()].sort((a,b)=>a[1]-b[1]).map(e=>e[0]):[]},
+  zpopmin(k){const r=this.zrange(k)[0];if(r)this.get(k).delete(r);return r||null},
+  incr(k){const v=(+this.get(k)||0)+1;this.set(k,v);return v}
+};
+const PESO={"Emergência":0,"Urgente":1,"Normal":2};
+
+// ---------- Neo4j: nós e arestas ----------
+const meds=["AAS","Ácido Fólico","Amoxicilina","Claritromicina","Dipirona","Ibuprofeno","Losartana","Metformina","Omeprazol","Paracetamol","Penicilina","Propranolol","Salbutamol","Sinvastatina","Varfarina"];
+const diags={I10:"Hipertensão arterial",E11:"Diabetes tipo 2",E78:"Dislipidemia",I48:"Fibrilação atrial",I63:"AVC isquêmico",N18:"Doença renal crônica",J45:"Asma",J06:"Infecção de vias aéreas",K21:"Refluxo gastroesofágico",I25:"Doença arterial coronariana"};
+const neo = {
+  contra:[["Varfarina","AAS","ALTO","Risco de sangramento"],["Varfarina","Ibuprofeno","ALTO","Risco de sangramento"],["Varfarina","Claritromicina","ALTO","Potencializa a anticoagulação"],["Losartana","Ibuprofeno","MÉDIO","Reduz o efeito anti-hipertensivo"],["Propranolol","Salbutamol","ALTO","Betabloqueador anula o broncodilatador"],["Sinvastatina","Claritromicina","ALTO","Risco de rabdomiólise"],["Metformina","Ibuprofeno","BAIXO","Atenção à função renal"]],
+  corr:[["E11","I10"],["E11","N18"],["I10","I63"],["I10","N18"],["E78","I25"],["I25","I63"],["I48","I63"],["J45","J06"]],
+  usa:{"111.111.111-11":["Losartana","Metformina"],"222.222.222-22":["Ácido Fólico"],"333.333.333-33":["Varfarina"],"444.444.444-44":[],"555.555.555-55":["Salbutamol"]},
+  alergico:{"111.111.111-11":["Dipirona"],"333.333.333-33":["Penicilina"],"555.555.555-55":["AAS"]},
+  diag:{"111.111.111-11":["I10","E11"],"333.333.333-33":["I48"],"444.444.444-44":["J06"],"555.555.555-55":["J45"]}
+};
+
+/* ================= LOG ================= */
+const logEl=document.getElementById("log");
+function log(db,cmd,nota){
+  const d=document.createElement("div");d.className="op "+db;
+  const nome={mongo:"MongoDB",redis:"Redis",neo:"Neo4j"}[db];
+  d.innerHTML=`<span class="pill p-${db}">${nome}</span><code></code><small></small>`;
+  d.querySelector("code").textContent=cmd; d.querySelector("small").textContent=nota||"";
+  logEl.prepend(d);
+}
+document.getElementById("btnClear").onclick=()=>logEl.innerHTML="";
+
+/* ================= SESSÃO ================= */
+let token=null, medico=null, pacienteAtual="333.333.333-33";
+const lgMed=document.getElementById("lgMed");
+mongo.profissionais.forEach((m,i)=>lgMed.insertAdjacentHTML("beforeend",`<option value="${i}">${m.nome} · ${m.especialidade}</option>`));
+document.getElementById("btnLogin").onclick=()=>{
+  medico=mongo.profissionais[lgMed.value];
+  log("mongo",`db.profissionais.findOne({ crm: "${medico.crm}", senha: "***" })`,"Credencial conferida no cadastro permanente.");
+  token=Math.random().toString(16).slice(2,14);
+  redis.setex("sessao:"+token,1800,JSON.stringify(medico));
+  log("redis",`SETEX sessao:${token} 1800 '{"nome":"${medico.nome}",...}'`,"Token com validade de 30 min. Quando o tempo acaba, a chave some sozinha.");
+  route();
+};
+function sair(motivo){if(token)redis.del("sessao:"+token);if(motivo)log("redis",`DEL sessao:${token}`,motivo);token=null;medico=null;route()}
+function renderSession(){
+  const s=document.getElementById("session");
+  if(!token){s.innerHTML="";return}
+  const t=redis.ttl("sessao:"+token);
+  if(t<0){sair("Sessão expirou (TTL chegou a zero).");return}
+  const mm=String(Math.floor(t/60)).padStart(2,"0"),ss=String(t%60).padStart(2,"0");
+  s.innerHTML=`<span>${medico.nome}</span><span class="pill p-redis">sessão expira em <span class="timer">${mm}:${ss}</span></span><button id="btnExp" style="padding:3px 8px;font-size:.74rem">Simular expiração</button><button id="btnOut" style="padding:3px 8px;font-size:.74rem">Sair</button>`;
+  document.getElementById("btnExp").onclick=()=>{redis.setex("sessao:"+token,3,redis.get("sessao:"+token));log("redis",`EXPIRE sessao:${token} 3`,"Encurtamos o TTL para 3 s para mostrar o logout automático.")};
+  document.getElementById("btnOut").onclick=()=>sair("Logout manual.");
+}
+setInterval(renderSession,1000);
+
+/* ================= DADOS INICIAIS DO REDIS ================= */
+function entrarFila(cpf,prio,silencioso){
+  const p=mongo.pacientes.find(x=>x.cpf===cpf);
+  const score=PESO[prio]*1e10+Date.now()/1000;
+  redis.zadd("fila:espera",score,cpf);
+  redis.set("fila:info:"+cpf,{nome:p.nome,prioridade:prio,chegada:new Date().toLocaleTimeString("pt-BR")});
+  if(!silencioso){log("redis",`ZADD fila:espera ${score.toFixed(0)} "${cpf}"\nHSET fila:info:${cpf} nome "${p.nome}" prioridade "${prio}"`,"Score = peso da prioridade × 10¹⁰ + hora de chegada. Menor score é atendido antes.")}
+}
+entrarFila("444.444.444-44","Normal",1);entrarFila("111.111.111-11","Urgente",1);entrarFila("333.333.333-33","Normal",1);
+
+/* ================= TELAS ================= */
+const screen=document.getElementById("screen");
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function telaRecepcao(){
+  const fila=redis.zrange("fila:espera");
+  const emAt=[...redis.store.keys()].filter(k=>k.startsWith("atendimento:")&&redis.get(k));
+  screen.innerHTML=`
+    <div class="row" style="justify-content:space-between"><h2>Recepção virtual</h2><span class="pill p-redis">Redis · Sorted Set</span></div>
+    <div class="kpis">
+      <div class="kpi"><b>${fila.length}</b><span>aguardando</span></div>
+      <div class="kpi"><b>${emAt.length}</b><span>em atendimento</span></div>
+      <div class="kpi"><b>${redis.get("contador:atendidos_hoje")||0}</b><span>atendidos hoje</span></div>
+    </div>
+    <div class="tbl"><table><thead><tr><th>Pos.</th><th>Paciente</th><th>Prioridade</th><th>Chegada</th></tr></thead><tbody>
+      ${fila.map((c,i)=>{const f=redis.get("fila:info:"+c);return `<tr class="sev-${PESO[f.prioridade]}"><td>${i+1}º</td><td>${esc(f.nome)}</td><td><span class="pill ${f.prioridade==="Emergência"?"p-crit":f.prioridade==="Urgente"?"p-warn":"p-ok"}">${f.prioridade}</span></td><td class="mono">${f.chegada}</td></tr>`}).join("")||`<tr><td colspan="4" class="muted">Fila vazia. Faça um check-in ao lado.</td></tr>`}
+    </tbody></table></div>
+    <div class="cols">
+      <div class="field" style="gap:8px">
+        <span class="label">Check-in</span>
+        <select id="ciPac">${mongo.pacientes.filter(p=>!fila.includes(p.cpf)).map(p=>`<option value="${p.cpf}">${esc(p.nome)}</option>`).join("")}</select>
+        <select id="ciPrio">${Object.keys(PESO).map(k=>`<option ${k==="Normal"?"selected":""}>${k}</option>`).join("")}</select>
+        <button id="btnCi">Colocar na fila</button>
+      </div>
+      <div class="field" style="gap:8px">
+        <span class="label">Chamar paciente</span>
+        <p class="muted" style="margin:0;font-size:.85rem">O <span class="mono">ZPOPMIN</span> tira e devolve o primeiro da fila numa operação só. Dois médicos nunca chamam a mesma pessoa.</p>
+        <button class="primary" id="btnCall" ${fila.length?"":"disabled"}>Chamar próximo</button>
+      </div>
+    </div>
+    <div class="row" style="justify-content:space-between"><h3>Agenda de hoje</h3><span id="agOrig"></span></div>
+    <div class="tbl" id="agenda"></div>
+    <button id="btnAg" style="align-self:flex-start">Recarregar agenda</button>`;
+  document.getElementById("btnCi").onclick=()=>{const c=document.getElementById("ciPac").value;if(c){entrarFila(c,document.getElementById("ciPrio").value);telaRecepcao()}};
+  document.getElementById("btnCall").onclick=()=>{
+    const cpf=redis.zpopmin("fila:espera");if(!cpf)return;
+    redis.setex("atendimento:"+cpf,3600,medico.crm);
+    log("redis",`ZPOPMIN fila:espera  →  "${cpf}"\nSETEX atendimento:${cpf} 3600 "${medico.crm}"`,"Paciente saiu da fila e ficou marcado como em atendimento por até 1 h.");
+    pacienteAtual=cpf; location.hash="prontuario";
+  };
+  const carregarAgenda=()=>{
+    const t0=performance.now(); let dados=redis.get("cache:agenda:hoje"), origem;
+    if(dados){origem=`<span class="pill p-redis">cache HIT · Redis · ~0,3 ms</span>`;log("redis","GET cache:agenda:hoje  →  HIT","Veio da memória. O MongoDB nem foi consultado.")}
+    else{dados=mongo.agenda;redis.setex("cache:agenda:hoje",300,dados);origem=`<span class="pill p-mongo">cache MISS · MongoDB · ~12 ms</span>`;
+      log("redis","GET cache:agenda:hoje  →  (nil)","Ainda não estava em cache.");
+      log("mongo","db.agendamentos.find({}).sort({ hora: 1 })","Lido do disco.");
+      log("redis","SETEX cache:agenda:hoje 300 '[...]'","Guardado por 5 min para as próximas leituras.")}
+    document.getElementById("agOrig").innerHTML=origem;
+    document.getElementById("agenda").innerHTML=`<table><thead><tr><th>Hora</th><th>Paciente</th><th>Médico</th><th>Tipo</th></tr></thead><tbody>${dados.map(a=>`<tr><td class="mono">${a.hora}</td><td>${esc(a.paciente)}</td><td>${esc(a.medico)}</td><td>${esc(a.tipo)}</td></tr>`).join("")}</tbody></table>`;
+  };
+  carregarAgenda(); document.getElementById("btnAg").onclick=carregarAgenda;
+}
+
+function alertas(cpf,novos){
+  const out=[];const usa=neo.usa[cpf]||[];
+  neo.contra.forEach(([a,b,r,m])=>{
+    novos.forEach(n=>{const o=n===a?b:n===b?a:null;if(!o)return;
+      if(usa.includes(o))out.push({tipo:"Interação com o que o paciente já usa",med:n,com:o,risco:r,motivo:m});
+      if(novos.includes(o)&&n<o)out.push({tipo:"Interação na mesma receita",med:n,com:o,risco:r,motivo:m});});
+  });
+  (neo.alergico[cpf]||[]).forEach(al=>{if(novos.includes(al))out.push({tipo:"Alergia registrada",med:al,com:"paciente",risco:"ALTO",motivo:"Consta no prontuário"})});
+  return out;
+}
+
+function telaProntuario(){
+  const p=mongo.pacientes.find(x=>x.cpf===pacienteAtual);
+  log("mongo",`db.pacientes.findOne({ cpf: "${p.cpf}" })`,"Um único documento traz tudo do paciente, sem JOIN.");
+  const cons=p.prontuario.consultas;
+  screen.innerHTML=`
+    <div class="row" style="justify-content:space-between">
+      <h2>Prontuário</h2>
+      <select id="selPac">${mongo.pacientes.map(x=>`<option value="${x.cpf}" ${x.cpf===p.cpf?"selected":""}>${esc(x.nome)}</option>`).join("")}</select>
+    </div>
+    <div class="cols">
+      <div class="field" style="gap:10px">
+        <div><h3>${esc(p.nome)}</h3><span class="muted" style="font-size:.85rem">CPF ${p.cpf} · nasc. ${p.nascimento}</span></div>
+        <div class="chips">${(p.alergias.length?p.alergias:["sem alergias"]).map(a=>`<span class="pill ${p.alergias.length?"p-crit":"p-ok"}">${p.alergias.length?"Alergia: ":""}${esc(a)}</span>`).join("")}
+          ${p.uso_continuo.map(u=>`<span class="pill p-neo">Usa: ${esc(u)}</span>`).join("")}</div>
+        <span class="label">Histórico (${cons.length} consultas)</span>
+        <div class="hist">${cons.slice().reverse().map(c=>`<div class="item"><b>${esc(c.data)}</b> · ${esc(c.medico)} · ${esc(c.queixa)}<br><span class="muted">CID ${c.diagnosticos.join(", ")||"—"} · Rx ${c.prescricoes.join(", ")||"—"}</span></div>`).join("")||`<span class="muted">Nenhuma consulta registrada ainda.</span>`}</div>
+      </div>
+      <div class="field"><span class="label">Documento no MongoDB</span><pre class="code" id="docJson"></pre></div>
+    </div>
+    <h3>Nova consulta</h3>
+    <div class="field"><label class="label" for="q">Queixa principal</label><input id="q" value="Palpitação e dor de cabeça"></div>
+    <div class="field"><span class="label">Diagnósticos (CID)</span><div class="chips" id="dChips">${Object.entries(diags).map(([c,n])=>`<button class="chip" data-v="${c}" aria-pressed="false">${c} · ${n}</button>`).join("")}</div></div>
+    <div class="field"><span class="label">Prescrever</span><div class="chips" id="mChips">${meds.map(m=>`<button class="chip" data-v="${m}" aria-pressed="false">${m}</button>`).join("")}</div></div>
+    <div id="alertBox"></div>
+    <button class="primary" id="btnFin" style="align-self:flex-start">Finalizar consulta e emitir receita</button>
+    <div id="receita"></div>`;
+  document.getElementById("docJson").textContent=JSON.stringify(p,null,2);
+  document.getElementById("selPac").onchange=e=>{pacienteAtual=e.target.value;telaProntuario()};
+  const sel=id=>[...document.querySelectorAll(`#${id} .chip[aria-pressed="true"]`)].map(b=>b.dataset.v);
+  document.querySelectorAll(".chip").forEach(b=>b.onclick=()=>{b.setAttribute("aria-pressed",b.getAttribute("aria-pressed")!=="true");if(b.closest("#mChips"))checar()});
+  function checar(){
+    const novos=sel("mChips");const box=document.getElementById("alertBox");
+    if(!novos.length){box.innerHTML="";return}
+    log("neo",`MATCH (p:Paciente {cpf:"${p.cpf}"})-[:USA]->(atual)-[c:CONTRAINDICADO_COM]-(novo)\nWHERE novo.nome IN ${JSON.stringify(novos)}\nRETURN novo.nome, atual.nome, c.risco, c.motivo`,"O banco segue as arestas a partir do paciente. Não precisa varrer tabela nenhuma.");
+    const a=alertas(p.cpf,novos);
+    box.innerHTML=a.length?`<div class="alert crit"><span class="ttl">${a.length} alerta(s) de segurança encontrado(s) no grafo</span>${a.map(x=>`<div><span class="pill ${x.risco==="ALTO"?"p-crit":"p-warn"}">${x.risco}</span> <b>${esc(x.med)}</b> × ${esc(x.com)}: ${esc(x.motivo)} <span class="muted">(${x.tipo})</span></div>`).join("")}</div>`
+      :`<div class="alert ok"><span class="ttl">Nenhuma interação ou alergia encontrada no grafo.</span></div>`;
+  }
+  document.getElementById("btnFin").onclick=()=>{
+    const ds=sel("dChips"),ms=sel("mChips"),q=document.getElementById("q").value.trim();
+    if(!q){document.getElementById("q").focus();return}
+    const c={data:new Date().toISOString().slice(0,16).replace("T"," "),medico:medico.nome,queixa:q,diagnosticos:ds,prescricoes:ms};
+    p.prontuario.consultas.push(c);
+    log("mongo",`db.pacientes.updateOne(\n  { cpf: "${p.cpf}" },\n  { $push: { "prontuario.consultas": {...} } })`,"A consulta entra no array do documento. É o registro permanente.");
+    neo.usa[p.cpf]=[...new Set([...(neo.usa[p.cpf]||[]),...ms])];neo.diag[p.cpf]=[...new Set([...(neo.diag[p.cpf]||[]),...ds])];
+    ms.forEach(m=>{if(!p.uso_continuo.includes(m))p.uso_continuo.push(m)});
+    log("neo",`MATCH (p:Paciente {cpf:"${p.cpf}"}), (m:Medico {crm:"${medico.crm}"})\nCREATE (m)-[:ATENDEU {data: datetime()}]->(p)\nMERGE (p)-[:USA]->(:Medicamento {nome: ...})\nMERGE (p)-[:DIAGNOSTICADO_COM]->(:Diagnostico {cid: ...})`,"O grafo aprende. A próxima receita já é conferida contra estes remédios.");
+    redis.del("atendimento:"+p.cpf);redis.del("fila:info:"+p.cpf);const n=redis.incr("contador:atendidos_hoje");
+    log("redis",`DEL atendimento:${p.cpf} fila:info:${p.cpf}\nINCR contador:atendidos_hoje  →  ${n}`,"Estado temporário limpo e contador do dia atualizado.");
+    telaProntuario();
+    document.getElementById("receita").innerHTML=`<div class="alert ok"><span class="ttl">Consulta finalizada nos três bancos.</span><pre class="code">RECEITA\nPaciente: ${esc(p.nome)}\nMédico:   ${esc(medico.nome)} (${medico.crm})\n${ms.map(m=>"  - "+esc(m)).join("\n")||"  (sem medicamentos)"}</pre></div>`;
+  };
+}
+
+function telaMapa(){
+  const p=mongo.pacientes.find(x=>x.cpf===pacienteAtual);
+  log("neo",`MATCH (p:Paciente {cpf:"${p.cpf}"})-[r]-(x) RETURN p, type(r), x`,"Vizinhança do paciente no grafo.");
+  const nos=[...(neo.usa[p.cpf]||[]).map(n=>({n,rel:"USA",cor:"var(--neo)"})),...(neo.alergico[p.cpf]||[]).map(n=>({n,rel:"ALERGICO_A",cor:"var(--crit)"})),...(neo.diag[p.cpf]||[]).map(c=>({n:c+" "+diags[c],rel:"DIAGNOSTICADO_COM",cor:"var(--mongo)"}))];
+  const W=640,H=360,cx=W/2,cy=H/2,R=135;
+  const pts=nos.map((x,i)=>{const a=-Math.PI/2+i*2*Math.PI/Math.max(nos.length,1);return {...x,x:cx+R*Math.cos(a)*1.45,y:cy+R*Math.sin(a)}});
+  const svg=`<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Grafo do paciente">
+    ${pts.map(t=>`<line x1="${cx}" y1="${cy}" x2="${t.x}" y2="${t.y}" stroke="${t.cor}" stroke-width="2"/><text x="${(cx+t.x)/2}" y="${(cy+t.y)/2-4}" font-size="10" text-anchor="middle" style="fill:var(--muted)">${t.rel}</text>`).join("")}
+    <circle cx="${cx}" cy="${cy}" r="34" fill="var(--accent)"/><text x="${cx}" y="${cy+4}" font-size="12" text-anchor="middle" style="fill:var(--surface);font-weight:700">${esc(p.nome.split(" ")[0])}</text>
+    ${pts.map(t=>`<rect x="${t.x-62}" y="${t.y-14}" width="124" height="28" rx="14" fill="var(--surface)" stroke="${t.cor}" stroke-width="1.5"/><text x="${t.x}" y="${t.y+4}" font-size="11" text-anchor="middle">${esc(t.n.length>20?t.n.slice(0,19)+"…":t.n)}</text>`).join("")}
+    ${!pts.length?`<text x="${cx}" y="${cy+60}" text-anchor="middle" style="fill:var(--muted)" font-size="12">Paciente ainda sem relações no grafo</text>`:""}
+  </svg>`;
+  screen.innerHTML=`
+    <div class="row" style="justify-content:space-between"><h2>Mapa clínico</h2>
+      <select id="selPac2">${mongo.pacientes.map(x=>`<option value="${x.cpf}" ${x.cpf===p.cpf?"selected":""}>${esc(x.nome)}</option>`).join("")}</select></div>
+    <div class="tbl">${svg}</div>
+    <div class="legend"><span><i style="background:var(--neo)"></i>USA</span><span><i style="background:var(--crit)"></i>ALERGICO_A</span><span><i style="background:var(--mongo)"></i>DIAGNOSTICADO_COM</span></div>
+    <h3>Diagnósticos que costumam vir em cadeia</h3>
+    <div class="row">
+      <select id="cid">${Object.entries(diags).map(([c,n])=>`<option value="${c}" ${c==="E11"?"selected":""}>${c} · ${n}</option>`).join("")}</select>
+      <label class="row" style="gap:6px" for="prof"><span class="label">saltos</span><input id="prof" type="range" min="1" max="3" value="2"><b id="profV">2</b></label>
+    </div>
+    <div class="tbl" id="cadeia"></div>`;
+  document.getElementById("selPac2").onchange=e=>{pacienteAtual=e.target.value;telaMapa()};
+  const calc=()=>{
+    const cid=document.getElementById("cid").value,k=+document.getElementById("prof").value;document.getElementById("profV").textContent=k;
+    log("neo",`MATCH caminho = (d:Diagnostico {cid:"${cid}"})-[:CORRELACIONADO_COM*1..${k}]->(o)\nRETURN o.nome, min(length(caminho)) AS saltos`,"Caminho de tamanho variável. Em SQL seriam auto-JOINs encadeados.");
+    const dist={[cid]:0};let fr=[cid];
+    for(let s=1;s<=k;s++){const nx=[];fr.forEach(a=>neo.corr.filter(e=>e[0]===a).forEach(([,b])=>{if(dist[b]===undefined){dist[b]=s;nx.push(b)}}));fr=nx}
+    const rows=Object.entries(dist).filter(([c])=>c!==cid).sort((a,b)=>a[1]-b[1]);
+    document.getElementById("cadeia").innerHTML=`<table><thead><tr><th>CID</th><th>Diagnóstico</th><th>Saltos</th></tr></thead><tbody>${rows.map(([c,s])=>`<tr><td class="mono">${c}</td><td>${diags[c]}</td><td>${s}</td></tr>`).join("")||`<tr><td colspan="3" class="muted">Nenhuma correlação cadastrada a partir deste CID.</td></tr>`}</tbody></table>`;
+  };
+  document.getElementById("cid").onchange=calc;document.getElementById("prof").oninput=calc;calc();
+}
+
+function telaComparativo(){
+  screen.innerHTML=`
+    <h2>Por que três bancos?</h2>
+    <p class="muted" style="margin:0;max-width:65ch">Cada banco guarda o tipo de dado que faz melhor. É o que se chama de persistência poliglota. A tabela abaixo é o roteiro da parte de arquitetura da apresentação.</p>
+    <div class="tbl"><table class="cmp"><thead><tr><th></th><th><span class="pill p-mongo">MongoDB</span></th><th><span class="pill p-redis">Redis</span></th><th><span class="pill p-neo">Neo4j</span></th></tr></thead><tbody>
+      <tr><td>Modelo</td><td>Documento (JSON/BSON)</td><td>Chave-valor em memória</td><td>Grafo (nós + arestas)</td></tr>
+      <tr><td>No sistema</td><td>Prontuários, médicos, laudos, agenda</td><td>Login, fila de espera, quem está em atendimento, cache, contadores</td><td>Pacientes, remédios, diagnósticos e como se ligam</td></tr>
+      <tr><td>Ponto forte</td><td>Esquema flexível: gestante tem <span class="mono">semanas_gestacao</span>, cardíaco tem <span class="mono">INR</span>. Tudo do paciente num documento.</td><td>Microssegundos. TTL apaga sozinho. Sorted Set ordena a fila. Operações atômicas.</td><td>Seguir relações é barato (index-free adjacency). Caminhos de tamanho variável.</td></tr>
+      <tr><td>Ponto fraco</td><td>Ruim para cruzar relações entre muitos documentos (o <span class="mono">$lookup</span> fica pesado)</td><td>Limitado pela RAM. Se cair sem persistência, perde os dados. Não serve para consultas complexas.</td><td>Não é bom para guardar documentos grandes nem para fazer relatório agregado de tudo</td></tr>
+      <tr><td>Se tirasse ele</td><td>Prontuário viraria dezenas de tabelas ou um texto solto</td><td>Fila e sessão no disco: mais lento e sem expiração automática</td><td>Checar interação seria um JOIN encadeado a cada receita</td></tr>
+      <tr><td>Consistência</td><td>Forte por documento (atualização atômica)</td><td>Temporária por design. Perder a fila do dia é aceitável.</td><td>ACID nas transações do grafo</td></tr>
+    </tbody></table></div>
+    <h3>A mesma pergunta em dois mundos</h3>
+    <p class="muted" style="margin:0">"Algum remédio novo conflita com o que este paciente já toma?"</p>
+    <div class="cols">
+      <div class="field"><span class="pill p-neo" style="align-self:flex-start">Cypher (Neo4j)</span><pre class="code">MATCH (p:Paciente {cpf:$cpf})
+      -[:USA]->(atual:Medicamento)
+      -[c:CONTRAINDICADO_COM]-(novo)
+WHERE novo.nome IN $novos
+RETURN novo.nome, atual.nome, c.risco</pre></div>
+      <div class="field"><span class="label" style="align-self:flex-start">SQL equivalente</span><pre class="code">SELECT n.nome, a.nome, c.risco
+FROM paciente p
+JOIN paciente_usa pu   ON pu.paciente_id = p.id
+JOIN medicamento a     ON a.id = pu.med_id
+JOIN contraindicacao c ON c.med_a = a.id
+                       OR c.med_b = a.id
+JOIN medicamento n     ON n.id = CASE
+     WHEN c.med_a = a.id THEN c.med_b
+     ELSE c.med_a END
+WHERE p.cpf = ? AND n.nome IN (?);</pre></div>
+    </div>
+    <h3>Teste de queda do Redis</h3>
+    <p class="muted" style="margin:0;max-width:65ch">Mostra na prática por que a fila fica no Redis e o prontuário no MongoDB.</p>
+    <button id="btnFlush" style="align-self:flex-start">Simular reinício do Redis (FLUSHALL)</button>
+    <div id="flushRes"></div>`;
+  document.getElementById("btnFlush").onclick=()=>{
+    const antes=redis.zrange("fila:espera").length;
+    const sess=redis.get("sessao:"+token);
+    redis.store.clear();redis.exp.clear();redis.setex("sessao:"+token,1800,sess);
+    log("redis","FLUSHALL","Toda a memória do Redis foi apagada (fila, cache, contadores). Para seguir a demo, recriamos só a sua sessão.");
+    log("mongo",`db.pacientes.countDocuments({})  →  ${mongo.pacientes.length}`,"Os prontuários continuam intactos no disco.");
+    document.getElementById("flushRes").innerHTML=`<div class="alert ok"><span class="ttl">Resultado</span>Fila: ${antes} → 0 pacientes (Redis, temporário). Prontuários: ${mongo.pacientes.length} → ${mongo.pacientes.length} (MongoDB, permanente). Os pacientes só precisam refazer o check-in.</div>`;
+  };
+}
+
+/* ================= ROTAS ================= */
+const telas={recepcao:telaRecepcao,prontuario:telaProntuario,mapa:telaMapa,comparativo:telaComparativo};
+function route(){
+  const logado=token&&redis.get("sessao:"+token);
+  document.getElementById("loginView").hidden=!!logado;document.getElementById("appView").hidden=!logado;
+  renderSession(); if(!logado)return;
+  const h=(location.hash||"#recepcao").slice(1);const k=telas[h]?h:"recepcao";
+  document.querySelectorAll("#tabs a").forEach(a=>{if(a.getAttribute("href")==="#"+k)a.setAttribute("aria-current","page");else a.removeAttribute("aria-current")});
+  telas[k]();
+}
+window.addEventListener("hashchange",route);
+/* Abre já logado para a primeira visão mostrar o sistema funcionando */
+lgMed.value="1";document.getElementById("btnLogin").click();
+</script>
