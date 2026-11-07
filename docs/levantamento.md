@@ -1,0 +1,67 @@
+# Levantamento: o que o professor pede × o que o projeto já tem
+
+Base: enunciado "Projeto Final – Implementação de Bancos de Dados NoSQL" (Estudo de Caso 03).
+Legenda: ✅ feito · 🟡 parcial · ❌ falta
+
+## 1. Entregáveis obrigatórios
+| Pedido | Situação | Observação |
+|---|---|---|
+| Repositório com código Python/Streamlit organizado e comentado | ✅ | `app.py` + `db/` (um arquivo por banco) |
+| `requirements.txt` ou Docker Compose | ✅ | os dois existem |
+| Scripts de carga: schemas, índices e dados nos 3 bancos | ✅ | `scripts/seed.py` |
+| **Projeto rodando de verdade com os 3 bancos** | ❌ | **nunca foi executado ponta a ponta**, só compilado. Prioridade nº 1 |
+| Grupo no repositório | ❌ | falta adicionar os 4 colegas no GitHub |
+
+## 2. Responsabilidade de cada banco (Caso 03)
+| Pedido | Situação | Observação |
+|---|---|---|
+| Mongo: prontuário JSON flexível (consultas, prescrições, exames, laudos) | ✅ | |
+| Mongo: cadastro de profissionais e especialidades | 🟡 | profissionais existem; não há tela de cadastro nem coleção de especialidades |
+| Redis: fila de espera com Sorted Set | ✅ | `ZADD` / `ZPOPMIN` |
+| Redis: tokens de sessão das consultas ativas | ✅ | `sessao:{token}` e `atendimento:{cpf}` com TTL |
+| Redis: cache das agendas do dia | ✅ | `cache:agenda:hoje`, TTL 5 min |
+| Neo4j: nós Paciente, Diagnostico, Medicamento, Medico | ✅ | |
+| Neo4j: interações medicamentosas (contraindicação cruzada) | ✅ | 3 consultas: uso atual, mesma receita e alergia |
+| Neo4j: diagnósticos correlacionados em cadeia | ✅ | caminho variável `*1..N` |
+| Neo4j: "histórico epidemiológico" | 🟡 | falta uma consulta agregada (ex.: diagnósticos mais comuns, pacientes com o mesmo CID) |
+
+## 3. Telas mínimas no Streamlit
+| Tela pedida | Situação | Observação |
+|---|---|---|
+| Prontuário & Atendimento (histórico, edição flexível de diagnósticos, upload de laudo) | 🟡 | histórico e upload ok; **não dá para editar um diagnóstico que já foi registrado**, só criar uma consulta nova |
+| Recepção virtual & fila (pacientes aguardando + agenda do dia via Redis) | ✅ | |
+| Mapeamento clínico & alertas (teia de diagnósticos + alertas automáticos) | ✅ | grafo em graphviz (estático) |
+| Finalização (laudo/receita no Mongo + status da fila no Redis) | ✅ | está dentro da tela de Prontuário; pode virar tela própria |
+
+## 4. Critérios de nota
+| Critério (peso) | Risco | O que fazer |
+|---|---|---|
+| Integração arquitetural (25%) | baixo | justificativas já estão no README |
+| Modelagem / Cypher (20%) | baixo | incluir diagrama do grafo e das chaves Redis nos slides |
+| Streamlit + **tratamento de erros** (25%) | **médio** | várias telas quebram se um banco estiver fora (ex.: Recepção chama o Mongo sem `try`). Envolver todas as chamadas e mostrar mensagem amigável |
+| Defesa oral (30%) | **alto** | todos precisam saber explicar o código; ver seção 6 |
+
+## 5. Melhorias que valem pontos (do protótipo `docs/prototipo.html`)
+- ❌ **Painel "o que cada banco fez"** no Streamlit. O enunciado pede para mostrar "as chamadas e atualizações acontecendo nos três bancos simultaneamente" na demo. É o item extra mais importante.
+- ❌ Aba **Comparativo** (pontos fortes/fracos, Cypher × SQL).
+- ❌ Botão **simular queda do Redis** (fila some, prontuário fica).
+- ❌ Botão **simular expiração da sessão** (mostra o TTL funcionando).
+- 🟡 Grafo interativo (hoje é imagem estática).
+
+## 6. Apresentação
+- ❌ Slides (problema → arquitetura → demo → perguntas).
+- ❌ Ensaio da demo cronometrado.
+- ⚠️ **Tempo conflitante no enunciado**: a seção 6 diz "até **10 minutos** por grupo", mas as partes somam 25–32 min. Confirmar com o professor.
+- ❌ Cada integrante estudar o seu arquivo (`docs/divisao.md`) e as perguntas prováveis.
+
+## 7. Observações técnicas
+- O enunciado traz credenciais de um Neo4j AuraDB. Se usarem, coloquem **só no `.env`** (que não vai para o GitHub), nunca no código. Com Aura, não precisa de Docker para o Neo4j.
+- Senhas estão em texto puro (aceitável para demo, mas citar na defesa que em produção seria hash/bcrypt).
+- Não há testes automatizados; um teste simples do fluxo seria um diferencial.
+
+## Ordem sugerida até 13/11
+1. Rodar tudo e corrigir o que quebrar (sáb 07).
+2. Tratamento de erros + edição de diagnóstico + painel "o que cada banco fez" (dom 08).
+3. Aba Comparativo + simulações de queda/expiração (seg 09).
+4. Slides + ensaio com o grupo (ter 10 / qua 11).
+5. Ensaio final (qui 12). Apresentação sex 13/11.
