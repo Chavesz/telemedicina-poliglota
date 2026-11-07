@@ -1,48 +1,48 @@
-"""Loja Poliglota — Streamlit orquestrando MongoDB + Redis + Neo4j.
+"""Telemedicina Poliglota — Streamlit orquestrando MongoDB + Redis + Neo4j.
 
 Rodar:  streamlit run app.py
-Fluxo da demo: Login (Redis) -> Catálogo (Mongo + cache Redis) -> Carrinho (Redis)
-               -> Recomendações (Neo4j) -> Checkout (Mongo + Neo4j + limpa Redis)
+Fluxo da demo:
+  Login (token no Redis c/ TTL) -> Recepção: fila de espera (Redis Sorted Set)
+  -> Chamar paciente -> Prontuário (Mongo) -> Prescrever: alertas (Neo4j)
+  -> Finalizar: grava consulta (Mongo) + atualiza grafo (Neo4j) + tira da fila (Redis)
 """
 import time
 import streamlit as st
 from db import mongo, redis_client as rc, neo4j_client as gc
 
-st.set_page_config(page_title="Loja Poliglota", page_icon="🛒", layout="wide")
+st.set_page_config(page_title="Telemedicina Poliglota", page_icon="🩺", layout="wide")
 
 
-# ------------------------------------------------------------------ status
 def status_bancos() -> dict[str, str | None]:
-    """Testa cada banco; retorna None se ok ou a mensagem de erro."""
+    """Testa cada banco; None = ok, senão a mensagem de erro."""
     res = {}
     for nome, fn in [("MongoDB", mongo.ping), ("Redis", rc.ping), ("Neo4j", gc.ping)]:
         try:
             fn(); res[nome] = None
-        except Exception as e:  # noqa: BLE001 — queremos mostrar qualquer falha
+        except Exception as e:  # noqa: BLE001 — mostrar qualquer falha na tela
             res[nome] = str(e)[:120]
     return res
 
 
 # ------------------------------------------------------------------ login
 def tela_login():
-    st.title("🛒 Loja Poliglota")
-    st.caption("Login gera um token salvo no **Redis** com TTL de 30 min.")
+    st.title("🩺 Telemedicina Poliglota")
+    st.caption("O login gera um token guardado no **Redis** com TTL de 30 min.")
     with st.form("login"):
-        email = st.text_input("E-mail", "ana@demo.com")
+        email = st.text_input("E-mail", "ana@clinica.com")
         senha = st.text_input("Senha", "123", type="password")
         if st.form_submit_button("Entrar"):
             try:
-                cli = mongo.autenticar(email, senha)
+                med = mongo.autenticar(email, senha)
             except Exception as e:
                 st.error(f"MongoDB indisponível: {e}"); return
-            if not cli:
+            if not med:
                 st.error("Credenciais inválidas."); return
-            cli.pop("_id", None)
-            st.session_state.token = rc.criar_sessao(cli)
+            st.session_state.token = rc.criar_sessao(med)
             st.rerun()
 
 
-def usuario_logado() -> dict | None:
+def medico_logado() -> dict | None:
     token = st.session_state.get("token")
     if not token:
         return None
@@ -53,140 +53,150 @@ def usuario_logado() -> dict | None:
         return None
 
 
-# ------------------------------------------------------------------ catálogo
-def produto_com_cache(sku: str) -> tuple[dict | None, str]:
-    """Cache-aside: tenta Redis; se não houver, lê Mongo e grava no Redis."""
-    chave = f"cache:produto:{sku}"
-    if (p := rc.cache_get(chave)):
-        return p, "Redis (cache HIT)"
-    p = mongo.obter_produto(sku)
-    if p:
-        rc.cache_set(chave, p)
-    return p, "MongoDB (cache MISS)"
-
-
-def tela_catalogo(cli):
-    st.header("📦 Catálogo")
-    c1, c2 = st.columns([3, 1])
-    termo = c1.text_input("Buscar", placeholder="notebook, jbl, livro...")
-    cats = ["(todas)"] + mongo.categorias()
-    cat = c2.selectbox("Categoria", cats)
-    cat = None if cat == "(todas)" else cat
-
-    chave = f"cache:busca:{termo.lower()}:{cat}"
+# ------------------------------------------------------------------ recepção
+def agenda_com_cache() -> tuple[list[dict], str, float]:
     t0 = time.perf_counter()
-    lista = rc.cache_get(chave)
+    agenda = rc.cache_get("cache:agenda:hoje")
     origem = "Redis (cache HIT)"
-    if lista is None:
-        lista = mongo.buscar_produtos(termo, cat)
-        rc.cache_set(chave, lista)
+    if agenda is None:
+        agenda = mongo.agenda_do_dia()
+        rc.cache_set("cache:agenda:hoje", agenda, rc.TTL_AGENDA)
         origem = "MongoDB (cache MISS)"
-    ms = (time.perf_counter() - t0) * 1000
-    st.caption(f"{len(lista)} produtos · origem: **{origem}** · {ms:.1f} ms · TTL {rc.TTL_CACHE}s")
-
-    for p in lista:
-        with st.container(border=True):
-            a, b, c = st.columns([4, 1, 1])
-            a.markdown(f"**{p['nome']}** · {p['marca']} · _{p['categoria']}_")
-            a.json(p["specs"], expanded=False)
-            b.metric("Preço", f"R$ {p['preco']:.2f}")
-            if c.button("Adicionar", key=f"add{p['sku']}"):
-                rc.add_carrinho(cli["cliente_id"], p["sku"])
-                rc.registrar_view(p["sku"])
-                st.toast(f"{p['nome']} no carrinho (Redis HINCRBY)")
-
-    with st.expander("🔥 Mais vistos (Redis Sorted Set)"):
-        for sku, score in rc.mais_vistos():
-            st.write(f"{sku} — {int(score)} interações")
+    return agenda, origem, (time.perf_counter() - t0) * 1000
 
 
-# ------------------------------------------------------------------ carrinho
-def itens_carrinho(cli) -> list[dict]:
-    itens = []
-    for sku, qtd in rc.carrinho(cli["cliente_id"]).items():
-        p, _ = produto_com_cache(sku)
-        if p:
-            itens.append({"sku": sku, "nome": p["nome"], "preco": p["preco"], "qtd": qtd})
-    return itens
+def tela_recepcao(med):
+    st.header("🏥 Recepção Virtual & Fila (Redis)")
+    m1, m2, m3 = st.columns(3)
+    fila = rc.fila()
+    m1.metric("Aguardando", len(fila))
+    m2.metric("Em atendimento", len(rc.em_atendimento()))
+    m3.metric("Atendidos hoje", rc.atendidos_hoje())
+
+    st.subheader("Fila de espera — Sorted Set `fila:espera`")
+    st.caption("Ordenada por prioridade (Emergência > Urgente > Normal) e depois hora de chegada.")
+    st.dataframe(fila, use_container_width=True, hide_index=True)
+
+    c1, c2 = st.columns(2)
+    with c1.form("checkin"):
+        st.markdown("**Check-in de paciente**")
+        pacs = {p["nome"]: p["cpf"] for p in mongo.listar_pacientes()}
+        nome = st.selectbox("Paciente", list(pacs))
+        prio = st.radio("Prioridade", list(rc.PESO), index=2, horizontal=True)
+        if st.form_submit_button("Entrar na fila (ZADD)"):
+            rc.entrar_na_fila(pacs[nome], nome, prio); st.rerun()
+    with c2:
+        st.markdown("**Chamar próximo**")
+        st.caption("ZPOPMIN é atômico: dois médicos nunca pegam o mesmo paciente.")
+        if st.button("📣 Chamar próximo paciente", type="primary"):
+            cpf = rc.chamar_proximo(med["crm"])
+            if cpf:
+                st.session_state.paciente = cpf
+                st.success("Paciente chamado — abra a aba Prontuário.")
+            else:
+                st.info("Fila vazia.")
+        st.dataframe(rc.em_atendimento(), use_container_width=True, hide_index=True)
+
+    st.subheader("Agenda do dia")
+    agenda, origem, ms = agenda_com_cache()
+    st.caption(f"origem: **{origem}** · {ms:.1f} ms · TTL {rc.ttl('cache:agenda:hoje')} s")
+    st.dataframe(agenda, use_container_width=True, hide_index=True)
 
 
-def tela_carrinho(cli):
-    st.header("🛍️ Carrinho (Redis)")
-    chave = f"carrinho:{cli['cliente_id']}"
-    st.caption(f"Chave `{chave}` · HASH · TTL restante: {rc.r.ttl(chave)} s")
-    itens = itens_carrinho(cli)
-    if not itens:
-        st.info("Carrinho vazio."); return
-    for i in itens:
-        a, b, c = st.columns([4, 1, 1])
-        a.write(f"{i['nome']} — R$ {i['preco']:.2f}")
-        nova = b.number_input("Qtd", 0, 99, i["qtd"], key=f"q{i['sku']}", label_visibility="collapsed")
-        if nova != i["qtd"]:
-            rc.set_qtd(cli["cliente_id"], i["sku"], nova); st.rerun()
-        if c.button("Remover", key=f"rm{i['sku']}"):
-            rc.set_qtd(cli["cliente_id"], i["sku"], 0); st.rerun()
-    st.subheader(f"Total: R$ {sum(i['preco'] * i['qtd'] for i in itens):.2f}")
-    st.code(rc.r.hgetall(chave), language="json")
+# ------------------------------------------------------------------ prontuário
+def selecionar_paciente() -> dict | None:
+    pacs = mongo.listar_pacientes()
+    cpfs = [p["cpf"] for p in pacs]
+    nomes = {p["cpf"]: p["nome"] for p in pacs}
+    atual = st.session_state.get("paciente")
+    idx = cpfs.index(atual) if atual in cpfs else 0
+    cpf = st.selectbox("Paciente", cpfs, index=idx, format_func=lambda c: f"{nomes[c]} ({c})")
+    st.session_state.paciente = cpf
+    return mongo.obter_paciente(cpf)
 
 
-# ------------------------------------------------------------------ recomendação
-def tela_recomendacoes(cli):
-    st.header("🧠 Recomendações (Neo4j)")
-    try:
-        recs = gc.recomendar_para_cliente(cli["cliente_id"])
-    except Exception as e:
-        st.error(f"Neo4j indisponível: {e}"); return
+def tela_prontuario(med):
+    st.header("📋 Prontuário & Atendimento (MongoDB)")
+    pac = selecionar_paciente()
+    if not pac:
+        return
+    a, b = st.columns([2, 1])
+    with a:
+        st.subheader(pac["nome"])
+        st.write(f"Nascimento: {pac['nascimento']} · Alergias: {', '.join(pac.get('alergias', [])) or 'nenhuma'}")
+        consultas = pac.get("prontuario", {}).get("consultas", [])
+        st.markdown(f"**Histórico** ({len(consultas)} consultas)")
+        for c in reversed(consultas):
+            with st.container(border=True):
+                st.write(f"{str(c['data'])[:16]} — {c['medico']['nome']} — {c.get('queixa', '')}")
+                st.caption(f"CID: {', '.join(c.get('diagnosticos', []))} · "
+                           f"Rx: {', '.join(p['medicamento'] for p in c.get('prescricoes', []))}")
+    with b:
+        st.markdown("**Documento JSON (esquema flexível)**")
+        st.json(pac, expanded=False)
+        st.markdown("**Laudos anexados**")
+        up = st.file_uploader("Anexar laudo/exame", type=["pdf", "png", "jpg"])
+        if up and st.button("Salvar laudo no Mongo"):
+            mongo.anexar_laudo(pac["cpf"], up.name, up.getvalue(), up.type)
+            st.success("Laudo salvo.")
+        for l in mongo.laudos_do_paciente(pac["cpf"]):
+            st.caption(f"📎 {l['arquivo']} ({l['tamanho'] // 1024} KB)")
 
-    st.subheader("Clientes com perfil similar também compraram")
-    if recs:
-        st.dataframe(recs, use_container_width=True)
-    else:
-        st.info("Sem histórico ainda (cold start) — mostrando populares de Informática.")
-        st.dataframe(gc.populares_da_categoria("Informática"), use_container_width=True)
+    st.divider()
+    st.subheader("🩻 Nova consulta")
+    diag = {d["cid"]: d["nome"] for d in gc.diagnosticos()}
+    queixa = st.text_input("Queixa principal")
+    cids = st.multiselect("Diagnósticos (CID)", list(diag), format_func=lambda c: f"{c} — {diag[c]}")
+    meds = st.multiselect("Prescrever medicamentos", gc.medicamentos())
+    obs = st.text_area("Observações")
 
-    st.subheader("Quem comprou isso também comprou…")
-    skus = [p["sku"] for p in mongo.buscar_produtos()]
-    sku = st.selectbox("Produto", skus)
-    st.dataframe(gc.quem_comprou_tambem_comprou(sku), use_container_width=True)
+    # Alerta em tempo real vindo do grafo
+    if meds:
+        alertas = gc.alertas_prescricao(pac["cpf"], meds)
+        if alertas:
+            st.error(f"⚠️ {len(alertas)} alerta(s) de segurança detectado(s) pelo Neo4j")
+            st.dataframe(alertas, use_container_width=True, hide_index=True)
+        else:
+            st.success("✅ Nenhuma interação ou alergia encontrada no grafo.")
 
-    st.subheader("Seu grafo")
-    arestas = gc.subgrafo_cliente(cli["cliente_id"])
+    if st.button("Finalizar consulta e emitir receita", type="primary", disabled=not queixa):
+        try:
+            rx = [{"medicamento": m, "posologia": "conforme orientação"} for m in meds]
+            mongo.registrar_consulta(pac["cpf"], med, queixa, cids, rx, obs)        # 1. prontuário
+            gc.registrar_atendimento(pac["cpf"], pac["nome"], med["crm"], cids, meds)  # 2. grafo
+            rc.finalizar_atendimento(pac["cpf"])                                  # 3. fila
+            st.success("Consulta salva no MongoDB, grafo atualizado no Neo4j e fila atualizada no Redis.")
+            st.code("RECEITA\n" + f"Paciente: {pac['nome']}\nMédico: {med['nome']} ({med['crm']})\n"
+                    + "\n".join(f"- {m}" for m in meds))
+        except Exception as e:
+            st.error(f"Falha ao finalizar: {e}")
+
+
+# ------------------------------------------------------------------ grafo
+def tela_mapa_clinico(med):
+    st.header("🧠 Mapeamento Clínico & Alertas (Neo4j)")
+    pac = selecionar_paciente()
+    if not pac:
+        return
+    arestas = gc.teia_paciente(pac["cpf"])
+    cores = {"USA": "blue", "ALERGICO_A": "red", "DIAGNOSTICADO_COM": "darkgreen", "ATENDEU": "gray"}
     if arestas:
-        dot = ["digraph G { rankdir=LR; node [style=filled];"]
+        dot = ["digraph G { rankdir=LR; node [shape=box, style=rounded];"]
         for a in arestas:
-            dot.append(f'"{a["cliente"]}" -> "{a["produto"]}" [label="COMPROU"];')
-            dot.append(f'"{a["outro"]}" -> "{a["produto"]}" [label="COMPROU", color=gray];')
+            dot.append(f'"{a["origem"]}" -> "{a["destino"]}" [label="{a["rel"]}", color={cores.get(a["rel"], "black")}];')
         dot.append("}")
-        st.graphviz_chart("\n".join(dict.fromkeys(dot)))
+        st.graphviz_chart("\n".join(dot))
+
+    st.subheader("Diagnósticos correlacionados em cadeia")
+    diag = {d["cid"]: d["nome"] for d in gc.diagnosticos()}
+    cid = st.selectbox("Diagnóstico de partida", list(diag), format_func=lambda c: f"{c} — {diag[c]}")
+    prof = st.slider("Profundidade (saltos)", 1, 4, 2)
+    st.dataframe(gc.diagnosticos_correlacionados(cid, prof), use_container_width=True, hide_index=True)
 
     with st.expander("Cypher usado"):
-        st.code("""MATCH (eu:Cliente {id:$cid})-[:COMPROU]->(:Produto)<-[:COMPROU]-(similar:Cliente)
-MATCH (similar)-[:COMPROU]->(rec:Produto)
-WHERE NOT (eu)-[:COMPROU]->(rec)
-RETURN rec.nome, count(DISTINCT similar) AS similares
-ORDER BY similares DESC LIMIT 5""", language="cypher")
-
-
-# ------------------------------------------------------------------ checkout
-def tela_checkout(cli):
-    st.header("💳 Checkout")
-    itens = itens_carrinho(cli)
-    if not itens:
-        st.info("Carrinho vazio."); return
-    st.table(itens)
-    if st.button("Finalizar pedido", type="primary"):
-        try:
-            pid = mongo.salvar_pedido(cli, itens)                          # 1. persiste (Mongo)
-            gc.registrar_compra(cli["cliente_id"], cli["nome"], itens)     # 2. grafo aprende (Neo4j)
-            rc.limpar_carrinho(cli["cliente_id"])                          # 3. limpa sessão (Redis)
-            st.success(f"Pedido {pid} salvo no MongoDB. Grafo atualizado. Carrinho limpo.")
-            st.json(mongo.pedidos.find_one({}, sort=[("criado_em", -1)], projection={"_id": 0}), expanded=True)
-        except Exception as e:
-            st.error(f"Falha no checkout: {e}")
-
-    st.subheader("Histórico de pedidos (MongoDB)")
-    for p in mongo.pedidos_do_cliente(cli["cliente_id"]):
-        st.write(f"{p['criado_em']:%d/%m %H:%M} — R$ {p['total']:.2f} — {len(p['itens'])} itens")
+        st.code(gc.CYPHER_INTERACAO_USO_ATUAL.strip(), language="cypher")
+        st.code("MATCH caminho = (d:Diagnostico {cid:$cid})-[:CORRELACIONADO_COM*1..2]->(o)\n"
+                "RETURN o.nome, length(caminho) AS saltos", language="cypher")
 
 
 # ------------------------------------------------------------------ main
@@ -198,20 +208,20 @@ def main():
             if erro:
                 st.caption(erro)
 
-    cli = usuario_logado()
-    if not cli:
+    med = medico_logado()
+    if not med:
         tela_login(); return
 
     with st.sidebar:
-        st.write(f"Olá, **{cli['nome']}**")
-        st.caption(f"Sessão Redis expira em {rc.ttl_sessao(st.session_state.token)} s")
-        pagina = st.radio("Navegação", ["Catálogo", "Carrinho", "Recomendações", "Checkout"])
+        st.write(f"**{med['nome']}** · {med['especialidade']}")
+        st.caption(f"Sessão Redis expira em {rc.ttl('sessao:' + st.session_state.token)} s")
+        pagina = st.radio("Navegação", ["Recepção & Fila", "Prontuário & Atendimento", "Mapa Clínico"])
         if st.button("Sair"):
             rc.encerrar_sessao(st.session_state.token)
             st.session_state.pop("token"); st.rerun()
 
-    {"Catálogo": tela_catalogo, "Carrinho": tela_carrinho,
-     "Recomendações": tela_recomendacoes, "Checkout": tela_checkout}[pagina](cli)
+    {"Recepção & Fila": tela_recepcao, "Prontuário & Atendimento": tela_prontuario,
+     "Mapa Clínico": tela_mapa_clinico}[pagina](med)
 
 
 main()

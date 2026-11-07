@@ -1,20 +1,27 @@
 """MongoDB — banco orientado a DOCUMENTOS.
 
-Por que aqui? Produtos têm especificações diferentes entre si (um notebook tem
-'ram', uma camisa tem 'tamanho'). Documento JSON aceita esse esquema flexível
-sem ALTER TABLE. Pedidos também são documentos: o pedido guarda uma "foto"
-dos itens e preços no momento da compra (histórico permanente).
+Por que aqui? Prontuário é naturalmente um documento: cada paciente tem um
+histórico diferente (consultas, prescrições, exames, laudos, alergias). Um
+JSON flexível guarda tudo junto, sem dezenas de tabelas e JOINs, e aceita
+campos novos (ex.: um exame novo) sem alterar esquema. É o registro PERMANENTE.
+
+Coleções:
+  profissionais  {crm, nome, especialidade, email, senha}
+  pacientes      {cpf, nome, nascimento, alergias[], prontuario: {consultas[]}}
+  laudos         arquivos anexados (base64) ligados ao paciente
+  agendamentos   agenda do dia
 """
+import base64
 from datetime import datetime, timezone
-from pymongo import MongoClient, DESCENDING
-from bson import ObjectId
+from pymongo import MongoClient
 from db.config import MONGO_URI, MONGO_DB
 
 _client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=3000)
 db = _client[MONGO_DB]
-produtos = db["produtos"]
-clientes = db["clientes"]
-pedidos = db["pedidos"]
+profissionais = db["profissionais"]
+pacientes = db["pacientes"]
+laudos = db["laudos"]
+agendamentos = db["agendamentos"]
 
 
 def ping() -> bool:
@@ -22,45 +29,45 @@ def ping() -> bool:
     return True
 
 
-def buscar_produtos(texto: str = "", categoria: str | None = None) -> list[dict]:
-    filtro: dict = {}
-    if texto:
-        filtro["$text"] = {"$search": texto}          # usa o índice de texto
-    if categoria:
-        filtro["categoria"] = categoria
-    docs = list(produtos.find(filtro).limit(50))
-    for d in docs:
-        d["_id"] = str(d["_id"])
-    return docs
-
-
-def obter_produto(sku: str) -> dict | None:
-    d = produtos.find_one({"sku": sku})
-    if d:
-        d["_id"] = str(d["_id"])
-    return d
-
-
-def categorias() -> list[str]:
-    return sorted(produtos.distinct("categoria"))
-
-
 def autenticar(email: str, senha: str) -> dict | None:
     # Demo acadêmica: senha em texto. Em produção usar hash (bcrypt).
-    return clientes.find_one({"email": email, "senha": senha}, {"senha": 0})
+    return profissionais.find_one({"email": email, "senha": senha}, {"_id": 0, "senha": 0})
 
 
-def salvar_pedido(cliente: dict, itens: list[dict]) -> str:
-    total = round(sum(i["preco"] * i["qtd"] for i in itens), 2)
-    doc = {
-        "cliente": {"id": cliente["cliente_id"], "nome": cliente["nome"], "email": cliente["email"]},
-        "itens": itens,                       # snapshot embutido (desnormalizado)
-        "total": total,
-        "status": "PAGO",
-        "criado_em": datetime.now(timezone.utc),
+def listar_pacientes(texto: str = "") -> list[dict]:
+    filtro = {"$text": {"$search": texto}} if texto else {}
+    return list(pacientes.find(filtro, {"_id": 0, "cpf": 1, "nome": 1, "nascimento": 1}).limit(50))
+
+
+def obter_paciente(cpf: str) -> dict | None:
+    return pacientes.find_one({"cpf": cpf}, {"_id": 0})
+
+
+def registrar_consulta(cpf: str, medico: dict, queixa: str, diagnosticos: list[str],
+                       prescricoes: list[dict], observacoes: str) -> None:
+    """Adiciona uma consulta ao array do prontuário ($push) — sem mexer no resto do documento."""
+    consulta = {
+        "data": datetime.now(timezone.utc),
+        "medico": {"crm": medico["crm"], "nome": medico["nome"], "especialidade": medico["especialidade"]},
+        "queixa": queixa,
+        "diagnosticos": diagnosticos,
+        "prescricoes": prescricoes,          # [{medicamento, posologia}]
+        "observacoes": observacoes,
     }
-    return str(pedidos.insert_one(doc).inserted_id)
+    pacientes.update_one({"cpf": cpf}, {"$push": {"prontuario.consultas": consulta}})
 
 
-def pedidos_do_cliente(cliente_id: str) -> list[dict]:
-    return list(pedidos.find({"cliente.id": cliente_id}).sort("criado_em", DESCENDING))
+def anexar_laudo(cpf: str, nome_arquivo: str, conteudo: bytes, tipo: str) -> None:
+    laudos.insert_one({
+        "cpf": cpf, "arquivo": nome_arquivo, "tipo": tipo, "tamanho": len(conteudo),
+        "conteudo_b64": base64.b64encode(conteudo).decode(),
+        "enviado_em": datetime.now(timezone.utc),
+    })
+
+
+def laudos_do_paciente(cpf: str) -> list[dict]:
+    return list(laudos.find({"cpf": cpf}, {"_id": 0, "conteudo_b64": 0}).sort("enviado_em", -1))
+
+
+def agenda_do_dia() -> list[dict]:
+    return list(agendamentos.find({}, {"_id": 0}).sort("hora", 1))

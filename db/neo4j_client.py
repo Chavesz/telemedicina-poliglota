@@ -1,16 +1,19 @@
 """Neo4j — banco de GRAFOS.
 
-Por que aqui? Recomendação é uma pergunta sobre RELACIONAMENTOS:
-"quem comprou o que eu comprei, também comprou o quê?". Em SQL seriam vários
-JOINs; no grafo é só seguir arestas (index-free adjacency).
+Por que aqui? Segurança clínica é uma pergunta sobre RELACIONAMENTOS:
+"algum remédio novo conflita com o que o paciente já toma?",
+"que diagnósticos costumam vir em cadeia com este?". No grafo é só seguir
+arestas (index-free adjacency); em SQL seriam auto-JOINs encadeados.
 
 Modelo:
-  (:Cliente {id, nome})
-  (:Produto {sku, nome})
-  (:Categoria {nome})
-  (:Cliente)-[:COMPROU {qtd, data}]->(:Produto)
-  (:Cliente)-[:AVALIOU {nota}]->(:Produto)
-  (:Produto)-[:PERTENCE_A]->(:Categoria)
+  (:Paciente {cpf, nome}) (:Medico {crm, nome}) (:Diagnostico {cid, nome}) (:Medicamento {nome})
+  (:Medico)-[:ATENDEU {data}]->(:Paciente)
+  (:Paciente)-[:DIAGNOSTICADO_COM]->(:Diagnostico)
+  (:Paciente)-[:USA]->(:Medicamento)
+  (:Paciente)-[:ALERGICO_A]->(:Medicamento)
+  (:Medicamento)-[:CONTRAINDICADO_COM {risco, motivo}]->(:Medicamento)
+  (:Medicamento)-[:TRATA]->(:Diagnostico)
+  (:Diagnostico)-[:CORRELACIONADO_COM]->(:Diagnostico)
 """
 from neo4j import GraphDatabase
 from db.config import NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE
@@ -28,70 +31,80 @@ def ping() -> bool:
     return True
 
 
-def quem_comprou_tambem_comprou(sku: str, limite: int = 5) -> list[dict]:
-    """Filtragem colaborativa item-item."""
+def medicamentos() -> list[str]:
+    return [r["nome"] for r in _run("MATCH (m:Medicamento) RETURN m.nome AS nome ORDER BY nome")]
+
+
+def diagnosticos() -> list[dict]:
+    return _run("MATCH (d:Diagnostico) RETURN d.cid AS cid, d.nome AS nome ORDER BY nome")
+
+
+# Consultas de alerta (cada uma é explicável sozinha na defesa).
+CYPHER_INTERACAO_USO_ATUAL = """
+MATCH (p:Paciente {cpf: $cpf})-[:USA]->(atual:Medicamento)-[c:CONTRAINDICADO_COM]-(novo:Medicamento)
+WHERE novo.nome IN $novos
+RETURN novo.nome AS medicamento, atual.nome AS conflita_com, c.risco AS risco, c.motivo AS motivo
+"""
+CYPHER_INTERACAO_MESMA_RECEITA = """
+MATCH (a:Medicamento)-[c:CONTRAINDICADO_COM]-(b:Medicamento)
+WHERE a.nome IN $novos AND b.nome IN $novos AND a.nome < b.nome
+RETURN a.nome AS medicamento, b.nome AS conflita_com, c.risco AS risco, c.motivo AS motivo
+"""
+CYPHER_ALERGIA = """
+MATCH (p:Paciente {cpf: $cpf})-[:ALERGICO_A]->(m:Medicamento)
+WHERE m.nome IN $novos
+RETURN m.nome AS medicamento, 'alergia do paciente' AS conflita_com, 'ALTO' AS risco,
+       'Alergia registrada' AS motivo
+"""
+
+
+def alertas_prescricao(cpf: str, novos: list[str]) -> list[dict]:
+    alertas = []
+    for tipo, q in [("Interação com uso atual", CYPHER_INTERACAO_USO_ATUAL),
+                    ("Interação na mesma receita", CYPHER_INTERACAO_MESMA_RECEITA),
+                    ("Alergia", CYPHER_ALERGIA)]:
+        alertas += [{"tipo": tipo, **r} for r in _run(q, cpf=cpf, novos=novos)]
+    return alertas
+
+
+def diagnosticos_correlacionados(cid: str, profundidade: int = 2) -> list[dict]:
+    """Cadeia de diagnósticos correlacionados até N saltos (path variável)."""
     return _run(
-        """
-        MATCH (p:Produto {sku: $sku})<-[:COMPROU]-(c:Cliente)-[:COMPROU]->(outro:Produto)
-        WHERE outro <> p
-        RETURN outro.sku AS sku, outro.nome AS nome, count(DISTINCT c) AS clientes
-        ORDER BY clientes DESC LIMIT $limite
-        """, sku=sku, limite=limite)
-
-
-def recomendar_para_cliente(cid: str, limite: int = 5) -> list[dict]:
-    """Clientes com perfil similar (compraram/avaliaram bem os mesmos produtos)
-    também compraram... — exclui o que o cliente já tem."""
-    return _run(
-        """
-        MATCH (eu:Cliente {id: $cid})-[:COMPROU]->(:Produto)<-[:COMPROU]-(similar:Cliente)
-        WHERE similar <> eu
-        MATCH (similar)-[:COMPROU]->(rec:Produto)
-        WHERE NOT (eu)-[:COMPROU]->(rec)
-        OPTIONAL MATCH (:Cliente)-[a:AVALIOU]->(rec)
-        RETURN rec.sku AS sku, rec.nome AS nome,
-               count(DISTINCT similar) AS similares,
-               round(coalesce(avg(a.nota), 0), 1) AS nota_media
-        ORDER BY similares DESC, nota_media DESC LIMIT $limite
-        """, cid=cid, limite=limite)
-
-
-def populares_da_categoria(categoria: str, limite: int = 5) -> list[dict]:
-    """Fallback (cold start) para cliente sem compras."""
-    return _run(
-        """
-        MATCH (cat:Categoria {nome: $cat})<-[:PERTENCE_A]-(p:Produto)<-[r:COMPROU]-()
-        RETURN p.sku AS sku, p.nome AS nome, count(r) AS vendas
-        ORDER BY vendas DESC LIMIT $limite
-        """, cat=categoria, limite=limite)
-
-
-def registrar_compra(cid: str, nome: str, itens: list[dict]) -> None:
-    """Chamado no checkout: o grafo aprende com cada pedido."""
-    _run(
-        """
-        MERGE (c:Cliente {id: $cid}) ON CREATE SET c.nome = $nome
-        WITH c
-        UNWIND $itens AS item
-        MATCH (p:Produto {sku: item.sku})
-        MERGE (c)-[r:COMPROU]->(p)
-        ON CREATE SET r.qtd = item.qtd, r.data = datetime()
-        ON MATCH  SET r.qtd = r.qtd + item.qtd, r.data = datetime()
-        """, cid=cid, nome=nome, itens=[{"sku": i["sku"], "qtd": i["qtd"]} for i in itens])
-
-
-def avaliar(cid: str, sku: str, nota: int) -> None:
-    _run(
-        """
-        MATCH (c:Cliente {id: $cid}), (p:Produto {sku: $sku})
-        MERGE (c)-[a:AVALIOU]->(p) SET a.nota = $nota
-        """, cid=cid, sku=sku, nota=nota)
-
-
-def subgrafo_cliente(cid: str) -> list[dict]:
-    """Arestas para desenhar o grafo do cliente na tela."""
-    return _run(
-        """
-        MATCH (eu:Cliente {id: $cid})-[:COMPROU]->(p:Produto)<-[:COMPROU]-(o:Cliente)
-        RETURN eu.nome AS cliente, p.nome AS produto, o.nome AS outro LIMIT 40
+        f"""
+        MATCH caminho = (d:Diagnostico {{cid: $cid}})-[:CORRELACIONADO_COM*1..{int(profundidade)}]->(o:Diagnostico)
+        WHERE o <> d
+        RETURN o.cid AS cid, o.nome AS nome, min(length(caminho)) AS saltos
+        ORDER BY saltos
         """, cid=cid)
+
+
+def teia_paciente(cpf: str) -> list[dict]:
+    """Arestas do paciente para desenhar o grafo."""
+    return _run(
+        """
+        MATCH (p:Paciente {cpf: $cpf})-[r]-(x)
+        RETURN p.nome AS origem, type(r) AS rel, coalesce(x.nome, x.cid) AS destino
+        """, cpf=cpf)
+
+
+def registrar_atendimento(cpf: str, nome: str, crm: str, cids: list[str], meds: list[str]) -> None:
+    """Ao finalizar a consulta, o grafo ganha o novo histórico do paciente."""
+    _run(
+        """
+        MERGE (p:Paciente {cpf: $cpf}) ON CREATE SET p.nome = $nome
+        WITH p
+        OPTIONAL MATCH (m:Medico {crm: $crm})
+        FOREACH (_ IN CASE WHEN m IS NULL THEN [] ELSE [1] END |
+                 CREATE (m)-[:ATENDEU {data: datetime()}]->(p))
+        WITH p
+        UNWIND $cids AS cid
+        MATCH (d:Diagnostico {cid: cid})
+        MERGE (p)-[:DIAGNOSTICADO_COM]->(d)
+        """, cpf=cpf, nome=nome, crm=crm, cids=cids or [""])
+    _run(
+        """
+        MATCH (p:Paciente {cpf: $cpf})
+        UNWIND $meds AS med
+        MATCH (m:Medicamento {nome: med})
+        MERGE (p)-[:USA]->(m)
+        """, cpf=cpf, meds=meds)

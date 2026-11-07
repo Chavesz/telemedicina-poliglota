@@ -1,100 +1,138 @@
 """Script de carga: cria coleções, índices, constraints e popula os 3 bancos.
 
 Uso (na raiz do projeto):  python -m scripts.seed
+Dados FICTÍCIOS, apenas para fins acadêmicos.
 """
-import random
 from pymongo import ASCENDING, TEXT
 from db import mongo, redis_client, neo4j_client
 
-random.seed(42)
-
-PRODUTOS = [
-    # Esquema FLEXÍVEL: cada categoria tem "specs" diferentes.
-    {"sku": "NB-001", "nome": "Notebook Lenovo IdeaPad 5", "categoria": "Informática", "marca": "Lenovo",
-     "preco": 3899.90, "estoque": 12, "specs": {"ram": "16GB", "ssd": "512GB", "cpu": "Ryzen 5"}},
-    {"sku": "NB-002", "nome": "Notebook Dell Inspiron 15", "categoria": "Informática", "marca": "Dell",
-     "preco": 4299.00, "estoque": 8, "specs": {"ram": "16GB", "ssd": "1TB", "cpu": "Core i7"}},
-    {"sku": "MS-001", "nome": "Mouse sem fio Logitech M280", "categoria": "Informática", "marca": "Logitech",
-     "preco": 89.90, "estoque": 100, "specs": {"dpi": 1000, "conexao": "USB 2.4GHz"}},
-    {"sku": "TC-001", "nome": "Teclado Mecânico Redragon Kumara", "categoria": "Informática", "marca": "Redragon",
-     "preco": 229.90, "estoque": 40, "specs": {"switch": "Outemu Blue", "layout": "ABNT2"}},
-    {"sku": "MN-001", "nome": "Monitor LG 24\" IPS", "categoria": "Informática", "marca": "LG",
-     "preco": 799.00, "estoque": 20, "specs": {"polegadas": 24, "resolucao": "1920x1080", "hz": 75}},
-    {"sku": "FN-001", "nome": "Fone JBL Tune 510BT", "categoria": "Áudio", "marca": "JBL",
-     "preco": 249.90, "estoque": 35, "specs": {"bluetooth": "5.0", "bateria_h": 40}},
-    {"sku": "CX-001", "nome": "Caixa de Som JBL Go 3", "categoria": "Áudio", "marca": "JBL",
-     "preco": 279.00, "estoque": 25, "specs": {"potencia_w": 4.2, "resistente_agua": "IP67"}},
-    {"sku": "CM-001", "nome": "Camiseta Dry Fit Masculina", "categoria": "Moda", "marca": "Nike",
-     "preco": 119.90, "estoque": 60, "specs": {"tamanhos": ["P", "M", "G", "GG"], "material": "Poliéster"}},
-    {"sku": "TN-001", "nome": "Tênis de Corrida Revolution 7", "categoria": "Moda", "marca": "Nike",
-     "preco": 399.90, "estoque": 30, "specs": {"numeracao": [38, 39, 40, 41, 42], "cor": "Preto"}},
-    {"sku": "MC-001", "nome": "Mochila para Notebook 15.6\"", "categoria": "Acessórios", "marca": "Samsonite",
-     "preco": 349.00, "estoque": 18, "specs": {"litros": 22, "compartimento_notebook": True}},
-    {"sku": "LV-001", "nome": "Livro: Bancos de Dados NoSQL", "categoria": "Livros", "marca": "Novatec",
-     "preco": 89.00, "estoque": 50, "specs": {"autor": "Pramod Sadalage", "paginas": 220, "isbn": "9788575223383"}},
-    {"sku": "LV-002", "nome": "Livro: Python Fluente", "categoria": "Livros", "marca": "Novatec",
-     "preco": 159.00, "estoque": 22, "specs": {"autor": "Luciano Ramalho", "paginas": 800}},
+MEDICOS = [
+    {"crm": "CRM-PB 1001", "nome": "Dra. Ana Lima", "especialidade": "Clínica Geral", "email": "ana@clinica.com", "senha": "123"},
+    {"crm": "CRM-PB 1002", "nome": "Dr. Bruno Souza", "especialidade": "Cardiologia", "email": "bruno@clinica.com", "senha": "123"},
+    {"crm": "CRM-PB 1003", "nome": "Dra. Carla Melo", "especialidade": "Endocrinologia", "email": "carla@clinica.com", "senha": "123"},
 ]
 
-CLIENTES = [
-    {"cliente_id": f"C{i:02d}", "nome": n, "email": f"{n.lower()}@demo.com", "senha": "123",
-     "endereco": {"cidade": "Campina Grande", "uf": "PB"}}
-    for i, n in enumerate(["Ana", "Bruno", "Carla", "Diego", "Elisa", "Felipe", "Gabi", "Heitor"], 1)
+# Esquema FLEXÍVEL: cada prontuário tem campos diferentes.
+PACIENTES = [
+    {"cpf": "111.111.111-11", "nome": "José Pereira", "nascimento": "1958-03-12", "sexo": "M",
+     "alergias": ["Dipirona"], "condicoes_cronicas": ["Hipertensão", "Diabetes tipo 2"],
+     "uso_continuo": ["Losartana", "Metformina"],
+     "prontuario": {"consultas": [{"data": "2026-08-10", "medico": {"nome": "Dr. Bruno Souza"},
+                                   "queixa": "Pressão alta", "diagnosticos": ["I10"],
+                                   "prescricoes": [{"medicamento": "Losartana", "posologia": "50mg 1x/dia"}]}]},
+     "exames": [{"tipo": "Glicemia", "valor": 145, "unidade": "mg/dL", "data": "2026-08-10"}]},
+    {"cpf": "222.222.222-22", "nome": "Maria Santos", "nascimento": "1990-07-25", "sexo": "F",
+     "alergias": [], "gestante": True, "semanas_gestacao": 20,
+     "uso_continuo": ["Ácido Fólico"], "prontuario": {"consultas": []}},
+    {"cpf": "333.333.333-33", "nome": "Carlos Oliveira", "nascimento": "1975-11-02", "sexo": "M",
+     "alergias": ["Penicilina"], "condicoes_cronicas": ["Fibrilação atrial"],
+     "uso_continuo": ["Varfarina"], "prontuario": {"consultas": []},
+     "exames": [{"tipo": "INR", "valor": 2.6, "data": "2026-10-01"}]},
+    {"cpf": "444.444.444-44", "nome": "Fernanda Costa", "nascimento": "2001-01-15", "sexo": "F",
+     "alergias": [], "uso_continuo": [], "prontuario": {"consultas": []}},
+    {"cpf": "555.555.555-55", "nome": "Paulo Ramos", "nascimento": "1966-05-30", "sexo": "M",
+     "alergias": ["AAS"], "condicoes_cronicas": ["Asma"], "uso_continuo": ["Salbutamol"],
+     "prontuario": {"consultas": []}},
 ]
 
-# Perfis de compra que geram padrões claros no grafo.
-PERFIS = {
-    "gamer":   ["NB-002", "MS-001", "TC-001", "MN-001", "FN-001"],
-    "estudo":  ["NB-001", "MS-001", "MC-001", "LV-001", "LV-002"],
-    "esporte": ["CM-001", "TN-001", "FN-001", "CX-001"],
-}
+AGENDA = [
+    {"hora": "08:00", "paciente": "José Pereira", "medico": "Dr. Bruno Souza", "tipo": "Retorno"},
+    {"hora": "08:30", "paciente": "Maria Santos", "medico": "Dra. Ana Lima", "tipo": "Pré-natal"},
+    {"hora": "09:00", "paciente": "Carlos Oliveira", "medico": "Dr. Bruno Souza", "tipo": "Controle INR"},
+    {"hora": "10:00", "paciente": "Paulo Ramos", "medico": "Dra. Ana Lima", "tipo": "Primeira consulta"},
+]
+
+MEDICAMENTOS = ["Losartana", "Metformina", "Varfarina", "AAS", "Ibuprofeno", "Dipirona", "Penicilina",
+                "Amoxicilina", "Omeprazol", "Ácido Fólico", "Salbutamol", "Propranolol", "Sinvastatina",
+                "Claritromicina", "Paracetamol"]
+
+DIAGNOSTICOS = [("I10", "Hipertensão arterial"), ("E11", "Diabetes tipo 2"), ("E78", "Dislipidemia"),
+                ("I48", "Fibrilação atrial"), ("I63", "AVC isquêmico"), ("N18", "Doença renal crônica"),
+                ("J45", "Asma"), ("J06", "Infecção de vias aéreas"), ("K21", "Refluxo gastroesofágico"),
+                ("I25", "Doença arterial coronariana")]
+
+# (med_a, med_b, risco, motivo) — exemplos didáticos.
+CONTRAINDICACOES = [
+    ("Varfarina", "AAS", "ALTO", "Risco de sangramento"),
+    ("Varfarina", "Ibuprofeno", "ALTO", "Risco de sangramento"),
+    ("Varfarina", "Claritromicina", "ALTO", "Potencializa anticoagulação"),
+    ("Losartana", "Ibuprofeno", "MÉDIO", "Reduz efeito anti-hipertensivo / lesão renal"),
+    ("Propranolol", "Salbutamol", "ALTO", "Betabloqueador antagoniza broncodilatador"),
+    ("Sinvastatina", "Claritromicina", "ALTO", "Risco de rabdomiólise"),
+    ("Metformina", "Ibuprofeno", "BAIXO", "Atenção à função renal"),
+]
+
+TRATA = [("Losartana", "I10"), ("Propranolol", "I10"), ("Metformina", "E11"), ("Sinvastatina", "E78"),
+         ("Varfarina", "I48"), ("Salbutamol", "J45"), ("Amoxicilina", "J06"), ("Omeprazol", "K21"),
+         ("AAS", "I25")]
+
+# Cadeias clínicas: E11 -> N18, I10 -> I63, E78 -> I25 ...
+CORRELACOES = [("E11", "I10"), ("E11", "N18"), ("I10", "I63"), ("I10", "N18"), ("E78", "I25"),
+               ("I25", "I63"), ("I48", "I63"), ("J45", "J06")]
+
+# Histórico no grafo: (cpf, crm, [cids], [meds em uso], [alergias])
+HIST = [
+    ("111.111.111-11", "CRM-PB 1002", ["I10", "E11"], ["Losartana", "Metformina"], ["Dipirona"]),
+    ("222.222.222-22", "CRM-PB 1001", [], ["Ácido Fólico"], []),
+    ("333.333.333-33", "CRM-PB 1002", ["I48"], ["Varfarina"], ["Penicilina"]),
+    ("444.444.444-44", "CRM-PB 1001", ["J06"], [], []),
+    ("555.555.555-55", "CRM-PB 1001", ["J45"], ["Salbutamol"], ["AAS"]),
+]
 
 
 def seed_mongo():
-    mongo.produtos.drop(); mongo.clientes.drop(); mongo.pedidos.drop()
-    mongo.produtos.insert_many([dict(p) for p in PRODUTOS])
-    mongo.clientes.insert_many([dict(c) for c in CLIENTES])
-    mongo.produtos.create_index([("sku", ASCENDING)], unique=True)
-    mongo.produtos.create_index([("categoria", ASCENDING), ("preco", ASCENDING)])
-    mongo.produtos.create_index([("nome", TEXT), ("marca", TEXT)], default_language="portuguese")
-    mongo.clientes.create_index("email", unique=True)
-    mongo.pedidos.create_index([("cliente.id", ASCENDING), ("criado_em", -1)])
-    print("Mongo OK:", mongo.produtos.count_documents({}), "produtos")
+    for c in (mongo.profissionais, mongo.pacientes, mongo.laudos, mongo.agendamentos):
+        c.drop()
+    mongo.profissionais.insert_many([dict(m) for m in MEDICOS])
+    mongo.pacientes.insert_many([dict(p) for p in PACIENTES])
+    mongo.agendamentos.insert_many([dict(a) for a in AGENDA])
+    mongo.profissionais.create_index("email", unique=True)
+    mongo.profissionais.create_index("crm", unique=True)
+    mongo.pacientes.create_index("cpf", unique=True)
+    mongo.pacientes.create_index([("nome", TEXT)], default_language="portuguese")
+    mongo.pacientes.create_index("prontuario.consultas.data")
+    mongo.laudos.create_index([("cpf", ASCENDING), ("enviado_em", -1)])
+    print("Mongo OK:", mongo.pacientes.count_documents({}), "pacientes")
 
 
 def seed_neo4j():
     run = neo4j_client._run
     run("MATCH (n) DETACH DELETE n")
-    run("CREATE CONSTRAINT produto_sku IF NOT EXISTS FOR (p:Produto) REQUIRE p.sku IS UNIQUE")
-    run("CREATE CONSTRAINT cliente_id IF NOT EXISTS FOR (c:Cliente) REQUIRE c.id IS UNIQUE")
-    run("CREATE CONSTRAINT categoria_nome IF NOT EXISTS FOR (c:Categoria) REQUIRE c.nome IS UNIQUE")
-    run("""
-        UNWIND $prods AS p
-        MERGE (prod:Produto {sku: p.sku}) SET prod.nome = p.nome
-        MERGE (cat:Categoria {nome: p.categoria})
-        MERGE (prod)-[:PERTENCE_A]->(cat)
-    """, prods=[{"sku": p["sku"], "nome": p["nome"], "categoria": p["categoria"]} for p in PRODUTOS])
-
-    perfis = list(PERFIS.values())
-    for i, c in enumerate(CLIENTES):
-        base = perfis[i % len(perfis)]
-        compras = random.sample(base, k=random.randint(2, len(base) - 1))
-        itens = [{"sku": s, "qtd": 1} for s in compras]
-        neo4j_client.registrar_compra(c["cliente_id"], c["nome"], itens)
-        for s in compras:
-            neo4j_client.avaliar(c["cliente_id"], s, random.randint(3, 5))
+    for label, prop in [("Paciente", "cpf"), ("Medico", "crm"), ("Diagnostico", "cid"), ("Medicamento", "nome")]:
+        run(f"CREATE CONSTRAINT {label.lower()}_{prop} IF NOT EXISTS FOR (n:{label}) REQUIRE n.{prop} IS UNIQUE")
+    run("UNWIND $l AS m MERGE (:Medico {crm: m.crm, nome: m.nome, especialidade: m.especialidade})",
+        l=[{k: m[k] for k in ("crm", "nome", "especialidade")} for m in MEDICOS])
+    run("UNWIND $l AS n MERGE (:Medicamento {nome: n})", l=MEDICAMENTOS)
+    run("UNWIND $l AS d MERGE (:Diagnostico {cid: d[0], nome: d[1]})", l=[list(d) for d in DIAGNOSTICOS])
+    run("""UNWIND $l AS c MATCH (a:Medicamento {nome: c[0]}), (b:Medicamento {nome: c[1]})
+           MERGE (a)-[:CONTRAINDICADO_COM {risco: c[2], motivo: c[3]}]->(b)""",
+        l=[list(c) for c in CONTRAINDICACOES])
+    run("""UNWIND $l AS t MATCH (m:Medicamento {nome: t[0]}), (d:Diagnostico {cid: t[1]})
+           MERGE (m)-[:TRATA]->(d)""", l=[list(t) for t in TRATA])
+    run("""UNWIND $l AS c MATCH (a:Diagnostico {cid: c[0]}), (b:Diagnostico {cid: c[1]})
+           MERGE (a)-[:CORRELACIONADO_COM]->(b)""", l=[list(c) for c in CORRELACOES])
+    nomes = {p["cpf"]: p["nome"] for p in PACIENTES}
+    for cpf, crm, cids, meds, alergias in HIST:
+        neo4j_client.registrar_atendimento(cpf, nomes[cpf], crm, cids, meds)
+        run("""MATCH (p:Paciente {cpf: $cpf}) UNWIND $al AS a
+               MATCH (m:Medicamento {nome: a}) MERGE (p)-[:ALERGICO_A]->(m)""", cpf=cpf, al=alergias)
     print("Neo4j OK")
 
 
 def seed_redis():
-    for k in redis_client.r.scan_iter("cache:*"):
-        redis_client.r.delete(k)
-    redis_client.r.delete("ranking:mais_vistos")
-    print("Redis OK (caches limpos)")
+    r = redis_client.r
+    for padrao in ("fila:*", "atendimento:*", "cache:*", "contador:*"):
+        for k in r.scan_iter(padrao):
+            r.delete(k)
+    # Alguns pacientes já aguardando na recepção virtual.
+    redis_client.entrar_na_fila("444.444.444-44", "Fernanda Costa", "Normal")
+    redis_client.entrar_na_fila("111.111.111-11", "José Pereira", "Urgente")
+    redis_client.entrar_na_fila("333.333.333-33", "Carlos Oliveira", "Normal")
+    print("Redis OK: fila com", len(redis_client.fila()), "pacientes")
 
 
 if __name__ == "__main__":
     seed_mongo()
     seed_neo4j()
     seed_redis()
-    print("Carga concluída. Login de teste: ana@demo.com / 123")
+    print("Carga concluída. Login de teste: ana@clinica.com / 123")
