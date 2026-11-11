@@ -1,5 +1,5 @@
-streamlit==1.39.0
-pymongo==4.10.1
-redis==5.2.0
-neo4j==5.26.0
-python-dotenv==1.0.1
+streamlit>=1.46
+pymongo>=4.10
+redis>=5.2
+neo4j>=5.26
+python-dotenv>=1.0

@@ -72,6 +72,8 @@ RETURN o.nome, length(caminho) AS saltos
 7. **Mapa Clínico → Histórico epidemiológico** → diagnósticos mais comuns, comorbidades e pacientes com o mesmo CID.
 8. **Painel dos Bancos** → contagens dos 3 bancos, chaves do Redis com TTL e o **log de cada comando** executado na demo.
 
+9. **Comparativo dos bancos** → forte/fraco/quando usar, Cypher × SQL e o botão **💥 Simular reinício do Redis**.
+
 Extras para a arguição: **✏️ Editar diagnóstico** numa consulta antiga (`$set` posicional + histórico de alterações + grafo sincronizado), **auditoria LGPD** no prontuário e o botão **⏱️ Simular expiração da sessão** na barra lateral.
 
 ## Como rodar
@@ -95,4 +97,6 @@ db/neo4j_client.py   # Neo4j: grafo clínico, alertas e epidemiologia (Cypher)
 db/oplog.py          # log dos comandos de cada banco (Painel dos Bancos)
 scripts/seed.py      # carga inicial + índices/constraints nos 3 bancos
 docs/divisao.md      # divisão da apresentação entre o grupo
+docs/roteiro-apresentacao.md  # roteiro de 10–15 min, demo e vídeo
+docs/deploy.md       # como colocar online (Streamlit Cloud + Atlas + Redis Cloud + AuraDB)
 ```

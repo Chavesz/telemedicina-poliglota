@@ -43,15 +43,15 @@ Legenda: ✅ feito · 🟡 parcial · ❌ falta
 
 ## 5. Melhorias que valem pontos (do protótipo `docs/prototipo.html`)
 - ✅ **Painel "o que cada banco fez"** no Streamlit (tela "Painel dos Bancos" + últimos comandos na barra lateral + checklist ao finalizar). O enunciado pede para mostrar "as chamadas e atualizações acontecendo nos três bancos simultaneamente" na demo. É o item extra mais importante.
-- ❌ Aba **Comparativo** (pontos fortes/fracos, Cypher × SQL).
-- ❌ Botão **simular queda do Redis** (fila some, prontuário fica).
+- ✅ Aba **Comparativo dos bancos** (forte/fraco/quando usar/consistência, Cypher × SQL).
+- ✅ Botão **simular reinício do Redis** (fila some, prontuário fica; sessão mantida).
 - ✅ Botão **simular expiração da sessão** (mostra o TTL funcionando).
 - 🟡 Grafo interativo (hoje é imagem estática).
 
 ## 6. Apresentação
-- ❌ Slides (problema → arquitetura → demo → perguntas).
+- 🟡 Roteiro de 10–15 min e do vídeo pronto em `docs/roteiro-apresentacao.md`; faltam os slides.
 - ❌ Ensaio da demo cronometrado.
-- ⚠️ **Tempo conflitante no enunciado**: a seção 6 diz "até **10 minutos** por grupo", mas as partes somam 25–32 min. Confirmar com o professor.
+- ✅ Tempo definido: **10 a 15 minutos**.
 - ❌ Cada integrante estudar o seu arquivo (`docs/divisao.md`) e as perguntas prováveis.
 
 ## 6.1 Feito no branch `telemedicina-poliglota-2.0`
@@ -63,6 +63,12 @@ Legenda: ✅ feito · 🟡 parcial · ❌ falta
 - **Invalidação de cache**: ao finalizar, a agenda vira "Atendido" no Mongo e `cache:agenda:hoje` é apagado.
 - **Seed coerente**: o prontuário no Mongo agora tem as mesmas consultas que o grafo.
 - Botão **simular expiração da sessão**.
+
+## 6.2 Feito em 11/11
+- Merge do branch 2.0 testado: login, fila, prontuário, alerta, finalização nos 3 bancos e todas as telas rodam sem erro (teste automático com Mongo/Redis em memória; o Cypher ainda precisa de um Neo4j real).
+- Aba Comparativo + simulação de reinício do Redis.
+- Pronto para ficar online: `db/config.py` lê os Secrets do Streamlit Cloud; guia em `docs/deploy.md`.
+- `requirements.txt` com versões mínimas (a fixa não instalava no Python 3.14) e parâmetro obsoleto `use_container_width` trocado.
 
 ## 7. Observações técnicas
 - O enunciado traz credenciais de um Neo4j AuraDB. Se usarem, coloquem **só no `.env`** (que não vai para o GitHub), nunca no código. Com Aura, não precisa de Docker para o Neo4j.
