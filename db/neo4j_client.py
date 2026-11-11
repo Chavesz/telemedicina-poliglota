@@ -17,11 +17,15 @@ Modelo:
 """
 from neo4j import GraphDatabase
 from db.config import NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE
+from db.oplog import registrar
 
-driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD))
+driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD), connection_timeout=5)
 
 
-def _run(query: str, **params) -> list[dict]:
+def _run(query: str, log: bool = True, **params) -> list[dict]:
+    if log:
+        linhas = [l for l in query.strip().splitlines() if l.strip() and not l.strip().startswith("//")]
+        registrar("Neo4j", " ".join(linhas))
     with driver.session(database=NEO4J_DATABASE) as s:
         return [rec.data() for rec in s.run(query, **params)]
 
@@ -32,11 +36,11 @@ def ping() -> bool:
 
 
 def medicamentos() -> list[str]:
-    return [r["nome"] for r in _run("MATCH (m:Medicamento) RETURN m.nome AS nome ORDER BY nome")]
+    return [r["nome"] for r in _run("MATCH (m:Medicamento) RETURN m.nome AS nome ORDER BY nome", log=False)]
 
 
 def diagnosticos() -> list[dict]:
-    return _run("MATCH (d:Diagnostico) RETURN d.cid AS cid, d.nome AS nome ORDER BY nome")
+    return _run("MATCH (d:Diagnostico) RETURN d.cid AS cid, d.nome AS nome ORDER BY nome", log=False)
 
 
 # Consultas de alerta (cada uma é explicável sozinha na defesa).
@@ -108,3 +112,64 @@ def registrar_atendimento(cpf: str, nome: str, crm: str, cids: list[str], meds: 
         MATCH (m:Medicamento {nome: med})
         MERGE (p)-[:USA]->(m)
         """, cpf=cpf, meds=meds)
+
+
+def atualizar_diagnosticos(cpf: str, removidos: list[str], adicionados: list[str]) -> None:
+    """Sincroniza o grafo quando um diagnóstico de consulta antiga é editado no Mongo."""
+    if removidos:
+        _run("""
+            MATCH (p:Paciente {cpf: $cpf})-[r:DIAGNOSTICADO_COM]->(d:Diagnostico)
+            WHERE d.cid IN $removidos
+            DELETE r
+            """, cpf=cpf, removidos=removidos)
+    if adicionados:
+        _run("""
+            MATCH (p:Paciente {cpf: $cpf})
+            UNWIND $adicionados AS cid
+            MATCH (d:Diagnostico {cid: cid})
+            MERGE (p)-[:DIAGNOSTICADO_COM]->(d)
+            """, cpf=cpf, adicionados=adicionados)
+
+
+# ---------- Histórico epidemiológico ----------
+CYPHER_EPIDEMIOLOGIA = """
+// Diagnósticos mais frequentes na clínica e quantos pacientes têm cada um
+MATCH (p:Paciente)-[:DIAGNOSTICADO_COM]->(d:Diagnostico)
+RETURN d.cid AS cid, d.nome AS diagnostico, count(DISTINCT p) AS pacientes
+ORDER BY pacientes DESC, cid
+"""
+CYPHER_MESMO_CID = """
+// Pacientes que compartilham o mesmo diagnóstico e os remédios que eles usam
+MATCH (d:Diagnostico {cid: $cid})<-[:DIAGNOSTICADO_COM]-(p:Paciente)
+OPTIONAL MATCH (p)-[:USA]->(m:Medicamento)
+RETURN p.nome AS paciente, collect(DISTINCT m.nome) AS usa
+ORDER BY paciente
+"""
+CYPHER_COMORBIDADES = """
+// Comorbidades: diagnósticos que aparecem JUNTOS no mesmo paciente
+MATCH (d1:Diagnostico)<-[:DIAGNOSTICADO_COM]-(p:Paciente)-[:DIAGNOSTICADO_COM]->(d2:Diagnostico)
+WHERE d1.cid < d2.cid
+RETURN d1.nome + ' + ' + d2.nome AS combinacao, count(DISTINCT p) AS pacientes
+ORDER BY pacientes DESC
+LIMIT 10
+"""
+
+
+def epidemiologia() -> list[dict]:
+    return _run(CYPHER_EPIDEMIOLOGIA)
+
+
+def pacientes_com_cid(cid: str) -> list[dict]:
+    return _run(CYPHER_MESMO_CID, cid=cid)
+
+
+def comorbidades() -> list[dict]:
+    return _run(CYPHER_COMORBIDADES)
+
+
+def estatisticas() -> dict:
+    return {
+        "nos": _run("MATCH (n) RETURN labels(n)[0] AS tipo, count(*) AS total ORDER BY total DESC", log=False),
+        "relacionamentos": _run("MATCH ()-[r]->() RETURN type(r) AS tipo, count(*) AS total "
+                                "ORDER BY total DESC", log=False),
+    }

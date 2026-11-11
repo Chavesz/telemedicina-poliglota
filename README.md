@@ -26,7 +26,7 @@ conflita com o que o paciente já usa ou com alergias. Ao final, emite a receita
 | `fila:espera` | SORTED SET `cpf -> score` | — |
 | `fila:info:{cpf}` | HASH `nome, prioridade, chegada` | — |
 | `atendimento:{cpf}` | STRING (CRM do médico) | 1 h |
-| `cache:agenda:hoje` | STRING (JSON) | 5 min |
+| `cache:agenda:hoje` | STRING (JSON) | 5 min (apagado ao finalizar uma consulta — invalidação) |
 | `contador:atendidos_hoje` | STRING (INCR) | — |
 
 Score da fila = `peso_prioridade × 10¹⁰ + timestamp_chegada` → Emergência (0) passa na frente de Urgente (1) e Normal (2); empate decide quem chegou antes.
@@ -69,6 +69,12 @@ RETURN o.nome, length(caminho) AS saltos
 4. **Prescrever** → escolher *Carlos Oliveira* + *AAS* ou *Ibuprofeno* → Neo4j mostra alerta de sangramento com Varfarina.
 5. **Finalizar** → consulta gravada no Mongo, grafo ganha `DIAGNOSTICADO_COM`/`USA`, Redis tira da fila e incrementa o contador.
 6. **Mapa Clínico** → desenho da teia do paciente e cadeia de diagnósticos.
+7. **Mapa Clínico → Histórico epidemiológico** → diagnósticos mais comuns, comorbidades e pacientes com o mesmo CID.
+8. **Painel dos Bancos** → contagens dos 3 bancos, chaves do Redis com TTL e o **log de cada comando** executado na demo.
+
+9. **Comparativo dos bancos** → forte/fraco/quando usar, Cypher × SQL e o botão **💥 Simular reinício do Redis**.
+
+Extras para a arguição: **✏️ Editar diagnóstico** numa consulta antiga (`$set` posicional + histórico de alterações + grafo sincronizado), **auditoria LGPD** no prontuário e o botão **⏱️ Simular expiração da sessão** na barra lateral.
 
 ## Como rodar
 ```bash
@@ -87,7 +93,10 @@ Neo4j Browser: http://localhost:7474 (neo4j / senha12345) → `MATCH (n) RETURN 
 app.py               # Streamlit: telas e orquestração dos 3 bancos
 db/mongo.py          # MongoDB: prontuários, profissionais, laudos, agenda
 db/redis_client.py   # Redis: sessão, fila (Sorted Set), atendimento, cache
-db/neo4j_client.py   # Neo4j: grafo clínico e consultas Cypher
+db/neo4j_client.py   # Neo4j: grafo clínico, alertas e epidemiologia (Cypher)
+db/oplog.py          # log dos comandos de cada banco (Painel dos Bancos)
 scripts/seed.py      # carga inicial + índices/constraints nos 3 bancos
 docs/divisao.md      # divisão da apresentação entre o grupo
+docs/roteiro-apresentacao.md  # roteiro de 10–15 min, demo e vídeo
+docs/deploy.md       # como colocar online (Streamlit Cloud + Atlas + Redis Cloud + AuraDB)
 ```

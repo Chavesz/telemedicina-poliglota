@@ -80,18 +80,45 @@ HIST = [
 ]
 
 
+def _pacientes_coerentes_com_grafo() -> list[dict]:
+    """Garante que o prontuário no Mongo tenha as mesmas consultas que o grafo (HIST).
+
+    Sem isso, o Neo4j diria que o Carlos tem fibrilação atrial, mas o prontuário
+    dele no Mongo estaria vazio — o professor pode notar na demo.
+    """
+    medicos = {m["crm"]: m for m in MEDICOS}
+    docs = []
+    for p in PACIENTES:
+        doc = dict(p)
+        consultas = list(doc["prontuario"]["consultas"])
+        registrados = {cid for c in consultas for cid in c.get("diagnosticos", [])}
+        for cpf, crm, cids, meds, _ in HIST:
+            novos = [c for c in cids if c not in registrados]
+            if cpf == p["cpf"] and (novos or not consultas):
+                m = medicos[crm]
+                consultas.append({"data": "2026-09-15",
+                                  "medico": {"crm": crm, "nome": m["nome"], "especialidade": m["especialidade"]},
+                                  "queixa": "Consulta de acompanhamento", "diagnosticos": novos,
+                                  "prescricoes": [{"medicamento": x, "posologia": "conforme orientação"}
+                                                  for x in meds]})
+        doc["prontuario"] = {"consultas": consultas}
+        docs.append(doc)
+    return docs
+
+
 def seed_mongo():
-    for c in (mongo.profissionais, mongo.pacientes, mongo.laudos, mongo.agendamentos):
+    for c in (mongo.profissionais, mongo.pacientes, mongo.laudos, mongo.agendamentos, mongo.auditoria):
         c.drop()
     mongo.profissionais.insert_many([dict(m) for m in MEDICOS])
-    mongo.pacientes.insert_many([dict(p) for p in PACIENTES])
-    mongo.agendamentos.insert_many([dict(a) for a in AGENDA])
+    mongo.pacientes.insert_many(_pacientes_coerentes_com_grafo())
+    mongo.agendamentos.insert_many([{**a, "status": "Agendado"} for a in AGENDA])
     mongo.profissionais.create_index("email", unique=True)
     mongo.profissionais.create_index("crm", unique=True)
     mongo.pacientes.create_index("cpf", unique=True)
     mongo.pacientes.create_index([("nome", TEXT)], default_language="portuguese")
     mongo.pacientes.create_index("prontuario.consultas.data")
     mongo.laudos.create_index([("cpf", ASCENDING), ("enviado_em", -1)])
+    mongo.auditoria.create_index([("cpf", ASCENDING), ("em", -1)])
     print("Mongo OK:", mongo.pacientes.count_documents({}), "pacientes")
 
 
