@@ -42,6 +42,12 @@ def autenticar(email: str, senha: str) -> dict | None:
     return profissionais.find_one({"email": email, "senha": senha}, {"_id": 0, "senha": 0})
 
 
+def listar_profissionais() -> list[dict]:
+    """Cadastro de profissionais de saúde e especialidades (enunciado: MongoDB)."""
+    registrar("MongoDB", "db.profissionais.find({}, {senha: 0}).sort({especialidade: 1})")
+    return list(profissionais.find({}, {"_id": 0, "senha": 0}).sort("especialidade", 1))
+
+
 def listar_pacientes(texto: str = "") -> list[dict]:
     filtro = {"$text": {"$search": texto}} if texto else {}
     registrar("MongoDB", f"db.pacientes.find({filtro}, {{cpf:1, nome:1}})")
@@ -54,7 +60,7 @@ def obter_paciente(cpf: str) -> dict | None:
 
 
 def registrar_consulta(cpf: str, medico: dict, queixa: str, diagnosticos: list[str],
-                       prescricoes: list[dict], observacoes: str) -> None:
+                       prescricoes: list[dict], observacoes: str, documento: dict | None = None) -> None:
     """Adiciona uma consulta ao array do prontuário ($push) — sem mexer no resto do documento."""
     consulta = {
         "data": datetime.now(timezone.utc),
@@ -64,6 +70,8 @@ def registrar_consulta(cpf: str, medico: dict, queixa: str, diagnosticos: list[s
         "prescricoes": prescricoes,          # [{medicamento, posologia}]
         "observacoes": observacoes,
     }
+    if documento:                            # receita/laudo emitido na Finalização da Consulta
+        consulta["documento_emitido"] = documento
     pacientes.update_one({"cpf": cpf}, {"$push": {"prontuario.consultas": consulta}})
     registrar("MongoDB", f"db.pacientes.updateOne({{cpf: '{cpf}'}}, {{$push: {{'prontuario.consultas': "
                          f"{{queixa: '{queixa[:30]}', diagnosticos: {diagnosticos}, ...}}}}}})")

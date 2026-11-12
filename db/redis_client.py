@@ -36,7 +36,23 @@ def ttl(chave: str) -> int:
 
 
 def info() -> dict:
-    return {"chaves": r.dbsize(), "memoria": r.info("memory").get("used_memory_human", "?")}
+    try:  # alguns Redis gerenciados (ex.: Upstash) bloqueiam o comando INFO
+        memoria = r.info("memory").get("used_memory_human", "?")
+    except redis.RedisError:
+        memoria = "n/d"
+    return {"chaves": r.dbsize(), "memoria": memoria}
+
+
+def simular_queda(manter_token: str) -> int:
+    """Para a demo: apaga todo o estado temporário (como se o Redis reiniciasse),
+    menos a sessão de quem está apresentando. Retorna quantas chaves sumiram."""
+    apagadas = 0
+    for k in list(r.scan_iter("*")):
+        if k != f"sessao:{manter_token}":
+            r.delete(k)
+            apagadas += 1
+    registrar("Redis", f"DEL * (simulação de reinício: {apagadas} chaves apagadas, sessão mantida)")
+    return apagadas
 
 
 def chaves_com_ttl(padrao: str = "*", limite: int = 200) -> list[dict]:

@@ -1,16 +1,11 @@
-# Divisão sugerida (grupo de 5) — defesa de até 30 min
+# Divisão do grupo (5 integrantes) — defesa de até 10 min
 
-| Pessoa | Parte | Tempo | Arquivo que precisa dominar |
+| Integrante | Parte | Tempo | Arquivo que precisa dominar |
 |---|---|---|---|
-| 1 | Problema, escopo e modelo de negócio da clínica | 3–5 min | README.md |
-| 2 | MongoDB: prontuário como documento JSON flexível, `$push`, índices, laudos | ~3 min | db/mongo.py |
-| 3 | Redis: token com TTL, fila com Sorted Set, ZPOPMIN atômico, cache da agenda | ~3 min | db/redis_client.py |
-| 4 | Neo4j: modelo do grafo, Cypher de interação medicamentosa e cadeia de diagnósticos | ~3 min | db/neo4j_client.py |
-| 5 | Demo ao vivo: check-in → chamar → prontuário → alerta → finalizar | 10 min | app.py, scripts/seed.py |
+| 1 | Abertura, problema de negócio e arquitetura | 2:30 | README.md, docker-compose.yml, db/config.py |
+| 2 | MongoDB: prontuário JSON, `$push`, `$set` posicional, laudos, auditoria | 1:00 + narra o Prontuário | db/mongo.py |
+| 3 | Redis: sessão com TTL, fila Sorted Set, ZPOPMIN, cache da agenda | 1:00 + narra a Recepção | db/redis_client.py |
+| 4 | Neo4j: modelo do grafo, Cypher de interação, cadeia e epidemiologia | 1:00 + narra o Mapeamento | db/neo4j_client.py |
+| 5 | Demo no teclado, Finalização da Consulta, Painel dos Bancos e fechamento | 4:30 | app.py, scripts/seed.py |
 
-Perguntas que todos devem saber responder:
-- Por que o prontuário NÃO fica no Redis? (é permanente; Redis é volátil/memória)
-- Por que a fila NÃO fica no Mongo? (muda a cada segundo, precisa ordenar e ser atômica)
-- O que acontece quando o TTL da sessão expira? (chave some, médico volta ao login)
-- Como o Neo4j descobre a interação? (segue USA → CONTRAINDICADO_COM a partir do paciente)
-- O que é index-free adjacency? (cada nó aponta direto para seus vizinhos, sem busca em índice)
+Falas completas, roteiro da demo e perguntas por integrante: `docs/roteiro-apresentacao.md`.
