@@ -62,19 +62,26 @@ MATCH caminho = (d:Diagnostico {cid:$cid})-[:CORRELACIONADO_COM*1..2]->(o:Diagno
 RETURN o.nome, length(caminho) AS saltos
 ```
 
+## Telas mínimas do enunciado (Estudo de Caso 03) → onde estão no app
+| Tela exigida | Menu do app | Bancos |
+|---|---|---|
+| 1. Prontuário & Atendimento Médico (histórico, edição flexível de diagnósticos, upload de laudos) | **Prontuário & Atendimento Médico** | MongoDB (+ Neo4j sincroniza a edição) |
+| 2. Painel da Recepção Virtual & Fila (pacientes aguardando e agenda do dia) | **Painel da Recepção Virtual & Fila** | Redis (Sorted Set + cache da agenda) |
+| 3. Mapeamento Clínico & Alertas de Segurança (teia de diagnósticos, alertas de prescrição e do histórico) | **Mapeamento Clínico & Alertas de Segurança** | Neo4j |
+| 4. Finalização da Consulta (receita/laudo no MongoDB e status da fila no Redis) | **Finalização da Consulta** | MongoDB + Neo4j + Redis |
+
+Extras: **Painel dos Bancos** (log de cada comando nos 3 bancos) e **Comparativo dos bancos** (forte/fraco, Cypher × SQL, simular reinício do Redis).
+
 ## Fluxo da demo (os 3 bancos juntos)
-1. **Login** → valida no Mongo, cria token no Redis com TTL (aparece a contagem na barra lateral).
-2. **Recepção & Fila** → check-in (`ZADD`), fila ordenada, "Chamar próximo" (`ZPOPMIN`), agenda com cache (HIT/MISS e tempo).
-3. **Prontuário** → abre o documento do paciente no Mongo, anexa laudo.
-4. **Prescrever** → escolher *Carlos Oliveira* + *AAS* ou *Ibuprofeno* → Neo4j mostra alerta de sangramento com Varfarina.
-5. **Finalizar** → consulta gravada no Mongo, grafo ganha `DIAGNOSTICADO_COM`/`USA`, Redis tira da fila e incrementa o contador.
-6. **Mapa Clínico** → desenho da teia do paciente e cadeia de diagnósticos.
-7. **Mapa Clínico → Histórico epidemiológico** → diagnósticos mais comuns, comorbidades e pacientes com o mesmo CID.
-8. **Painel dos Bancos** → contagens dos 3 bancos, chaves do Redis com TTL e o **log de cada comando** executado na demo.
+1. **Login** → valida no Mongo, cria token no Redis com TTL (contagem na barra lateral).
+2. **Painel da Recepção Virtual & Fila** → check-in (`ZADD`), fila por prioridade, agenda com cache (MISS/HIT), "Chamar próximo" (`ZPOPMIN`) já abre o prontuário.
+3. **Prontuário & Atendimento Médico** → documento do paciente no Mongo, anexa laudo, ✏️ edita um diagnóstico antigo.
+4. **Prescrever** *Carlos Oliveira* + *AAS* → o Neo4j alerta sangramento com a Varfarina.
+5. **Mapeamento Clínico & Alertas de Segurança** → teia do paciente, alertas do histórico, cadeia de diagnósticos e histórico epidemiológico.
+6. **Finalização da Consulta** → emite receita/laudo (Mongo), grafo aprende `USA`/`DIAGNOSTICADO_COM` (Neo4j), paciente sai da fila e o contador sobe (Redis); a fila atualizada aparece na hora.
+7. **Painel dos Bancos** → log com os comandos reais dos três bancos.
 
-9. **Comparativo dos bancos** → forte/fraco/quando usar, Cypher × SQL e o botão **💥 Simular reinício do Redis**.
-
-Extras para a arguição: **✏️ Editar diagnóstico** numa consulta antiga (`$set` posicional + histórico de alterações + grafo sincronizado), **auditoria LGPD** no prontuário e o botão **⏱️ Simular expiração da sessão** na barra lateral.
+Extras para a arguição: **auditoria LGPD** no prontuário, **⏱️ Simular expiração da sessão** (barra lateral) e **💥 Simular reinício do Redis** (Comparativo).
 
 ## Como rodar
 ```bash

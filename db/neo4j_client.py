@@ -71,6 +71,24 @@ def alertas_prescricao(cpf: str, novos: list[str]) -> list[dict]:
     return alertas
 
 
+CYPHER_ALERTA_HISTORICO = """
+// Alertas automáticos do HISTÓRICO: remédios que o paciente já usa e que conflitam entre si
+MATCH (p:Paciente {cpf: $cpf})-[:USA]->(a:Medicamento)-[c:CONTRAINDICADO_COM]-(b:Medicamento)<-[:USA]-(p)
+WHERE a.nome < b.nome
+RETURN 'Conflito entre remédios em uso' AS tipo, a.nome AS medicamento, b.nome AS conflita_com,
+       c.risco AS risco, c.motivo AS motivo
+UNION
+// ...ou um remédio em uso ao qual o paciente é alérgico
+MATCH (p:Paciente {cpf: $cpf})-[:USA]->(m:Medicamento)<-[:ALERGICO_A]-(p)
+RETURN 'Usa remédio ao qual é alérgico' AS tipo, m.nome AS medicamento, 'alergia do paciente' AS conflita_com,
+       'ALTO' AS risco, 'Alergia registrada' AS motivo
+"""
+
+
+def alertas_historico(cpf: str) -> list[dict]:
+    return _run(CYPHER_ALERTA_HISTORICO, cpf=cpf)
+
+
 def diagnosticos_correlacionados(cid: str, profundidade: int = 2) -> list[dict]:
     """Cadeia de diagnósticos correlacionados até N saltos (path variável)."""
     return _run(

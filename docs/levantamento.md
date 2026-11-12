@@ -23,7 +23,7 @@ Legenda: ✅ feito · 🟡 parcial · ❌ falta
 | Neo4j: nós Paciente, Diagnostico, Medicamento, Medico | ✅ | |
 | Neo4j: interações medicamentosas (contraindicação cruzada) | ✅ | 3 consultas: uso atual, mesma receita e alergia |
 | Neo4j: diagnósticos correlacionados em cadeia | ✅ | caminho variável `*1..N` |
-| Neo4j: "histórico epidemiológico" | ✅ | aba no Mapa Clínico: diagnósticos mais frequentes, comorbidades e pacientes com o mesmo CID (+ aggregation equivalente no Mongo) |
+| Neo4j: "histórico epidemiológico" | ✅ | aba na tela Mapeamento Clínico & Alertas de Segurança: diagnósticos mais frequentes, comorbidades e pacientes com o mesmo CID (+ aggregation equivalente no Mongo) |
 
 ## 3. Telas mínimas no Streamlit
 | Tela pedida | Situação | Observação |
@@ -69,6 +69,13 @@ Legenda: ✅ feito · 🟡 parcial · ❌ falta
 - Aba Comparativo + simulação de reinício do Redis.
 - Pronto para ficar online: `db/config.py` lê os Secrets do Streamlit Cloud; guia em `docs/deploy.md`.
 - `requirements.txt` com versões mínimas (a fixa não instalava no Python 3.14) e parâmetro obsoleto `use_container_width` trocado.
+
+## 6.3 Alinhamento com o enunciado final (12/11)
+- Os 4 itens do menu têm exatamente os nomes das telas mínimas do Estudo de Caso 03.
+- **Finalização da Consulta** virou tela própria: emite receita e/ou laudo (salvos em `documento_emitido` na consulta, no Mongo), permite baixar o documento e mostra a fila atualizada (Redis).
+- **Alertas automáticos do histórico** no Mapeamento Clínico (remédios em uso que conflitam entre si ou com alergia).
+- **Corpo clínico** (profissionais e especialidades do Mongo) na Recepção.
+- Defesa oral: **até 10 minutos por grupo** — roteiro em `docs/roteiro-apresentacao.md`.
 
 ## 7. Observações técnicas
 - O enunciado traz credenciais de um Neo4j AuraDB. Se usarem, coloquem **só no `.env`** (que não vai para o GitHub), nunca no código. Com Aura, não precisa de Docker para o Neo4j.

@@ -8,6 +8,7 @@ Fluxo da demo:
   -> Painel dos Bancos: log de cada comando executado nos 3 bancos
 """
 import time
+from datetime import datetime
 import streamlit as st
 from neo4j.exceptions import Neo4jError, ServiceUnavailable
 from pymongo.errors import PyMongoError
@@ -93,7 +94,7 @@ def agenda_com_cache() -> tuple[list[dict], str, float]:
 
 
 def tela_recepcao(med):
-    st.header("🏥 Recepção Virtual & Fila (Redis)")
+    st.header("🏥 Painel da Recepção Virtual & Fila (Redis)")
     m1, m2, m3 = st.columns(3)
     fila = rc.fila()
     m1.metric("Aguardando", len(fila))
@@ -119,7 +120,8 @@ def tela_recepcao(med):
             cpf = rc.chamar_proximo(med["crm"])
             if cpf:
                 st.session_state.paciente = cpf
-                st.success("Paciente chamado — abra a aba Prontuário.")
+                st.session_state.ir_para = "Prontuário & Atendimento Médico"
+                st.rerun()
             else:
                 st.info("Fila vazia.")
         st.dataframe(rc.em_atendimento(), width="stretch", hide_index=True)
@@ -129,6 +131,9 @@ def tela_recepcao(med):
     st.caption(f"origem: **{origem}** · {ms:.1f} ms · TTL {rc.ttl(rc.CHAVE_AGENDA)} s "
                "· recarregue a página para ver o HIT do cache")
     st.dataframe(agenda, width="stretch", hide_index=True)
+
+    with st.expander("👩‍⚕️ Corpo clínico — profissionais e especialidades (MongoDB)"):
+        st.dataframe(mongo.listar_profissionais(), width="stretch", hide_index=True)
 
 
 # ------------------------------------------------------------------ prontuário
@@ -169,7 +174,7 @@ def editar_diagnostico(pac: dict, med: dict, indice: int, consulta: dict, diag: 
 
 
 def tela_prontuario(med):
-    st.header("📋 Prontuário & Atendimento (MongoDB)")
+    st.header("📋 Prontuário & Atendimento Médico (MongoDB)")
     pac = selecionar_paciente()
     if not pac:
         return
@@ -231,21 +236,21 @@ def tela_prontuario(med):
         else:
             st.success("✅ Nenhuma interação ou alergia encontrada no grafo.")
 
-    if st.button("Finalizar consulta e emitir receita", type="primary", disabled=not queixa):
-        finalizar_consulta(pac, med, queixa, cids, meds, obs)
+    if st.button("Ir para a Finalização da Consulta ➜", type="primary", disabled=not queixa):
+        st.session_state.rascunho = {"cpf": pac["cpf"], "nome": pac["nome"], "queixa": queixa,
+                                     "cids": cids, "meds": meds, "obs": obs}
+        st.session_state.ir_para = "Finalização da Consulta"
+        st.rerun()
+    if not queixa:
+        st.caption("Preencha a queixa principal para seguir para a finalização.")
 
-    if etapas := st.session_state.pop("etapas", None):
-        st.markdown("**O que cada banco fez ao finalizar:**")
-        for banco, texto, ok in etapas:
-            st.markdown(f"{'✅' if ok else '❌'} **{banco}** — {texto}")
 
-
-def finalizar_consulta(pac, med, queixa, cids, meds, obs) -> None:
+def finalizar_consulta(pac, med, queixa, cids, meds, obs, rx=None, documento=None) -> None:
     """Ordem importa: o Mongo (fonte da verdade) primeiro. Se ele falhar, nada mais é feito."""
     etapas = []
-    rx = [{"medicamento": m, "posologia": "conforme orientação"} for m in meds]
+    rx = rx or [{"medicamento": m, "posologia": "conforme orientação"} for m in meds]
     try:
-        mongo.registrar_consulta(pac["cpf"], med, queixa, cids, rx, obs)
+        mongo.registrar_consulta(pac["cpf"], med, queixa, cids, rx, obs, documento)
         mongo.marcar_agenda_atendida(pac["nome"])
         mongo.registrar_acesso(pac["cpf"], med, "registrou consulta")
         etapas.append(("MongoDB", "consulta gravada no prontuário ($push), agenda atualizada e auditoria", True))
@@ -266,18 +271,97 @@ def finalizar_consulta(pac, med, queixa, cids, meds, obs) -> None:
         etapas.append(("Redis", f"falhou ({str(e)[:80]})", False))
 
     st.session_state.etapas = etapas
-    st.session_state.msg = "Consulta finalizada. RECEITA — " + (", ".join(meds) or "sem medicamentos")
+    st.session_state.documento_final = documento
+    st.session_state.pop("rascunho", None)
     st.rerun()
+
+
+# ------------------------------------------------------------------ finalização
+def montar_documento(med, nome, tipo, rx, cids, laudo) -> dict:
+    agora = datetime.now()
+    linhas = [f"{tipo.upper()} — Telemedicina Poliglota", f"Data: {agora:%d/%m/%Y %H:%M}",
+              f"Paciente: {nome}", f"Médico(a): {med['nome']} · {med['crm']} · {med['especialidade']}", ""]
+    if cids:
+        linhas.append("Diagnósticos (CID): " + ", ".join(cids))
+    if "Receita" in tipo:
+        linhas.append("Prescrição:")
+        linhas += [f"  - {r['medicamento']}: {r['posologia']}" for r in rx] or ["  (sem medicamentos)"]
+    if "Laudo" in tipo:
+        linhas += ["", "Laudo:", laudo or "(sem texto)"]
+    return {"tipo": tipo, "numero": agora.strftime("%Y%m%d%H%M%S"), "texto": "\n".join(linhas)}
+
+
+def tela_finalizacao(med):
+    st.header("🧾 Finalização da Consulta")
+    st.caption("Emite receita/laudo (gravado no MongoDB) e atualiza na hora o status da fila (Redis).")
+
+    if etapas := st.session_state.pop("etapas", None):
+        st.success("Consulta finalizada.")
+        st.markdown("**O que cada banco fez:**")
+        for banco, texto, ok in etapas:
+            st.markdown(f"{'✅' if ok else '❌'} **{banco}** — {texto}")
+        doc = st.session_state.pop("documento_final", None)
+        if doc:
+            st.code(doc["texto"], language=None)
+            st.download_button("⬇️ Baixar documento", doc["texto"], file_name=f"{doc['tipo']}-{doc['numero']}.txt")
+        st.subheader("Status da fila agora (Redis)")
+        st.dataframe(rc.fila(), width="stretch", hide_index=True)
+        st.metric("Atendidos hoje", rc.atendidos_hoje())
+        return
+
+    r = st.session_state.get("rascunho")
+    if not r:
+        st.info("Nenhuma consulta em andamento. Preencha a nova consulta na tela "
+                "**Prontuário & Atendimento Médico** e clique em *Ir para a Finalização*.")
+        return
+
+    pac = mongo.obter_paciente(r["cpf"])
+    st.subheader(f"{r['nome']} — {r['queixa']}")
+    st.write(f"CID: {', '.join(r['cids']) or '—'} · Alergias: {', '.join(pac.get('alergias', [])) or 'nenhuma'}")
+
+    if r["meds"]:
+        alertas = gc.alertas_prescricao(r["cpf"], r["meds"])
+        if alertas:
+            st.error(f"⚠️ O Neo4j ainda aponta {len(alertas)} alerta(s) nesta prescrição. Revise antes de emitir.")
+            st.dataframe(alertas, width="stretch", hide_index=True)
+
+    tipo = st.radio("Documento a emitir", ["Receita", "Laudo", "Receita e Laudo"], horizontal=True)
+    rx = []
+    if "Receita" in tipo:
+        st.markdown("**Posologia**")
+        for m in r["meds"]:
+            rx.append({"medicamento": m, "posologia": st.text_input(m, "1 comprimido de 12/12 h por 7 dias",
+                                                                   key=f"pos_{m}")})
+        if not r["meds"]:
+            st.caption("Nenhum medicamento prescrito.")
+    laudo = st.text_area("Texto do laudo", r["obs"]) if "Laudo" in tipo else ""
+
+    doc = montar_documento(med, r["nome"], tipo, rx, r["cids"], laudo)
+    with st.expander("Pré-visualizar documento"):
+        st.code(doc["texto"], language=None)
+
+    c1, c2 = st.columns([1, 3])
+    if c1.button("✅ Emitir e finalizar", type="primary"):
+        finalizar_consulta(pac, med, r["queixa"], r["cids"], r["meds"], laudo or r["obs"], rx or None, doc)
+    if c2.button("Voltar ao prontuário"):
+        st.session_state.ir_para = "Prontuário & Atendimento Médico"
+        st.rerun()
 
 
 # ------------------------------------------------------------------ grafo
 def tela_mapa_clinico(med):
-    st.header("🧠 Mapeamento Clínico & Alertas (Neo4j)")
+    st.header("🧠 Mapeamento Clínico & Alertas de Segurança (Neo4j)")
     aba_pac, aba_epi = st.tabs(["Paciente", "📊 Histórico epidemiológico"])
 
     with aba_pac:
         pac = selecionar_paciente()
         if pac:
+            alertas = gc.alertas_historico(pac["cpf"])
+            if alertas:
+                st.error(f"⚠️ Alerta automático: {len(alertas)} risco(s) no histórico deste paciente")
+                st.dataframe(alertas, width="stretch", hide_index=True)
+            else:
+                st.success("✅ Nenhum conflito entre os remédios que o paciente já usa.")
             arestas = gc.teia_paciente(pac["cpf"])
             cores = {"USA": "blue", "ALERGICO_A": "red", "DIAGNOSTICADO_COM": "darkgreen", "ATENDEU": "gray"}
             if arestas:
@@ -413,10 +497,12 @@ def tela_comparativo(med):
 
 
 # ------------------------------------------------------------------ main
+# As 4 primeiras são as "telas mínimas" do Estudo de Caso 03, com os nomes do enunciado.
 PAGINAS = {
-    "Recepção & Fila": tela_recepcao,
-    "Prontuário & Atendimento": tela_prontuario,
-    "Mapa Clínico": tela_mapa_clinico,
+    "Painel da Recepção Virtual & Fila": tela_recepcao,
+    "Prontuário & Atendimento Médico": tela_prontuario,
+    "Mapeamento Clínico & Alertas de Segurança": tela_mapa_clinico,
+    "Finalização da Consulta": tela_finalizacao,
     "Painel dos Bancos": tela_painel_bancos,
     "Comparativo dos bancos": tela_comparativo,
 }
@@ -437,7 +523,11 @@ def main():
     with st.sidebar:
         st.write(f"**{med['nome']}** · {med['especialidade']}")
         st.caption(f"Sessão Redis expira em {rc.ttl('sessao:' + st.session_state.token)} s")
-        pagina = st.radio("Navegação", list(PAGINAS))
+        if destino := st.session_state.pop("ir_para", None):   # navegação automática entre telas
+            st.session_state.pagina = destino
+        if st.session_state.get("pagina") not in PAGINAS:
+            st.session_state.pagina = next(iter(PAGINAS))
+        pagina = st.radio("Navegação", list(PAGINAS), key="pagina")
         if st.button("⏱️ Simular expiração da sessão", help="Muda o TTL do token para 5 s"):
             rc.simular_expiracao_sessao(st.session_state.token, 5)
             st.toast("TTL da sessão agora é 5 s. Espere e clique em qualquer coisa.")
