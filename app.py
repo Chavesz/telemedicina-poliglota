@@ -18,6 +18,44 @@ from db import mongo, oplog, redis_client as rc, neo4j_client as gc
 
 st.set_page_config(page_title="Telemedicina Poliglota", page_icon="🩺", layout="wide")
 
+st.markdown("""
+<style>
+.block-container {padding-top: 2rem; max-width: 1280px;}
+h1, h2 {color: #0E6E74; letter-spacing: -0.01em;}
+h2 {border-bottom: 2px solid #CDE3E2; padding-bottom: .4rem; margin-bottom: 1rem;}
+div[data-testid="stMetric"] {background: #FFFFFF; border: 1px solid #D5E5E4;
+  border-left: 5px solid #0E6E74; border-radius: 12px; padding: 14px 18px;
+  box-shadow: 0 1px 3px rgba(14,110,116,.08);}
+div[data-testid="stMetricValue"] {color: #0E6E74; font-weight: 700;}
+div[data-testid="stForm"], div[data-testid="stExpander"] details {background: #FFFFFF;
+  border: 1px solid #D5E5E4; border-radius: 12px;}
+div[data-testid="stDataFrame"] {border: 1px solid #D5E5E4; border-radius: 10px; overflow: hidden;}
+section[data-testid="stSidebar"] {background: #0E3F42;}
+section[data-testid="stSidebar"] * {color: #E8F3F2 !important;}
+section[data-testid="stSidebar"] code {background: rgba(255,255,255,.12);}
+section[data-testid="stSidebar"] button {background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.25);}
+.stButton button, .stFormSubmitButton button {border-radius: 999px; font-weight: 600;}
+.login-hero {text-align:center; margin: 2rem 0 1.5rem;}
+.login-hero h1 {font-size: 2.6rem; margin-bottom: .2rem; border: 0;}
+.login-hero p {color: #4C6B6A; font-size: 1.05rem;}
+.chips {display:flex; gap:.5rem; justify-content:center; margin-top:.8rem; flex-wrap:wrap;}
+.chip {padding:.25rem .8rem; border-radius:999px; font-size:.85rem; font-weight:600;}
+/* navegação lateral como menu */
+section[data-testid="stSidebar"] div[role="radiogroup"] label {padding: .45rem .7rem; border-radius: 8px;
+  margin-bottom: 2px; width: 100%; transition: background .15s;}
+section[data-testid="stSidebar"] div[role="radiogroup"] label:hover {background: rgba(255,255,255,.08);}
+section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {background: rgba(255,255,255,.16);
+  box-shadow: inset 3px 0 0 #7FD3CC; font-weight: 600;}
+section[data-testid="stSidebar"] div[role="radiogroup"] label > div > div:first-child:not([data-testid]) {display: none;}
+/* campos de formulário */
+div[data-baseweb="select"] > div, div[data-baseweb="input"] > div, textarea {background: #FFFFFF !important;
+  border-color: #C9DCDB !important; border-radius: 8px !important;}
+div[data-testid="stAlert"] {border-radius: 10px;}
+h3 {color: #14302F;}
+</style>
+""", unsafe_allow_html=True)
+
 
 def status_bancos() -> dict[str, str | None]:
     """Testa cada banco; None = ok, senão a mensagem de erro."""
@@ -41,20 +79,35 @@ def erro_amigavel(e: Exception) -> None:
     else:
         st.error(f"Erro inesperado: {e}")
         return
-    st.error(f"**{banco} não respondeu** — {efeito}. Verifique se o container está rodando "
-             f"(`docker compose ps`).\n\nDetalhe técnico: `{str(e).splitlines()[0][:150]}`")
+    st.error(f"**{banco} não respondeu** — {efeito}. Verifique a conexão do banco "
+             f"(container local ou serviço na nuvem).\n\nDetalhe técnico: `{str(e).splitlines()[0][:150]}`")
 
 
 # ------------------------------------------------------------------ login
 def tela_login():
-    st.title("🩺 Telemedicina Poliglota")
-    st.caption("O login gera um token guardado no **Redis** com TTL de 30 min.")
+    st.markdown("""
+<div class="login-hero">
+  <h1>🩺 Telemedicina Poliglota</h1>
+  <p>Prontuário, fila de atendimento e alertas de segurança com três bancos NoSQL.</p>
+  <div class="chips">
+    <span class="chip" style="background:#E3F4EA;color:#1E7B45">MongoDB · prontuários</span>
+    <span class="chip" style="background:#FBE6E4;color:#B4352B">Redis · sessão e fila</span>
+    <span class="chip" style="background:#E4ECFA;color:#2E5AAC">Neo4j · interações</span>
+  </div>
+</div>""", unsafe_allow_html=True)
+    _, centro, _ = st.columns([1, 1.3, 1])
+    with centro:
+        _form_login()
+
+
+def _form_login():
+    st.caption("Acesso de demonstração já preenchido. O login gera um token no **Redis** com TTL de 30 min.")
     if st.session_state.pop("sessao_expirou", False):
         st.warning("⏱️ Sua sessão expirou: a chave `sessao:{token}` sumiu do Redis pelo TTL. Entre de novo.")
     with st.form("login"):
         email = st.text_input("E-mail", "ana@clinica.com")
         senha = st.text_input("Senha", "123", type="password")
-        if st.form_submit_button("Entrar"):
+        if st.form_submit_button("Entrar", type="primary", width="stretch"):
             try:
                 med = mongo.autenticar(email, senha)
                 if not med:
@@ -124,7 +177,11 @@ def tela_recepcao(med):
                 st.rerun()
             else:
                 st.info("Fila vazia.")
-        st.dataframe(rc.em_atendimento(), width="stretch", hide_index=True)
+        em_atend = rc.em_atendimento()
+        if em_atend:
+            st.dataframe(em_atend, width="stretch", hide_index=True)
+        else:
+            st.caption("Nenhum paciente em atendimento agora.")
 
     st.subheader("Agenda do dia")
     agenda, origem, ms = agenda_com_cache()
@@ -155,7 +212,7 @@ def editar_diagnostico(pac: dict, med: dict, indice: int, consulta: dict, diag: 
     """Edição flexível de diagnóstico de uma consulta já registrada (Mongo + grafo)."""
     with st.popover("✏️ Editar diagnóstico"):
         atuais = [c for c in consulta.get("diagnosticos", []) if c in diag]
-        novos = st.multiselect("CIDs desta consulta", list(diag), default=atuais,
+        novos = st.multiselect("CIDs desta consulta", list(diag), default=atuais, placeholder="Escolha os CIDs",
                                format_func=lambda c: f"{c} — {diag[c]}", key=f"edit_{indice}")
         if st.button("Salvar alteração", key=f"salvar_{indice}"):
             try:
@@ -223,8 +280,8 @@ def tela_prontuario(med):
     st.divider()
     st.subheader("🩻 Nova consulta")
     queixa = st.text_input("Queixa principal")
-    cids = st.multiselect("Diagnósticos (CID)", list(diag), format_func=lambda c: f"{c} — {diag[c]}")
-    meds = st.multiselect("Prescrever medicamentos", gc.medicamentos())
+    cids = st.multiselect("Diagnósticos (CID)", list(diag), placeholder="Busque pelo CID ou nome", format_func=lambda c: f"{c} — {diag[c]}")
+    meds = st.multiselect("Prescrever medicamentos", gc.medicamentos(), placeholder="Escolha os medicamentos — o Neo4j checa interações")
     obs = st.text_area("Observações")
 
     # Alerta em tempo real vindo do grafo
@@ -433,7 +490,7 @@ def tela_painel_bancos(med):
     st.caption("TTL -1 = não expira · número positivo = segundos até a chave sumir sozinha")
 
     st.subheader("📜 Log de comandos")
-    bancos = st.multiselect("Bancos", ["MongoDB", "Redis", "Neo4j"], default=["MongoDB", "Redis", "Neo4j"])
+    bancos = st.multiselect("Bancos", ["MongoDB", "Redis", "Neo4j"], default=["MongoDB", "Redis", "Neo4j"], placeholder="Escolha os bancos")
     log = [o for o in oplog.ultimas() if o["banco"] in bancos]
     st.dataframe(log, width="stretch", hide_index=True, height=420)
 
@@ -510,6 +567,8 @@ PAGINAS = {
 
 def main():
     with st.sidebar:
+        st.markdown("### 🩺 Telemedicina")
+        st.caption("Persistência poliglota · Estudo de Caso 03")
         st.subheader("Status dos bancos")
         for nome, erro in status_bancos().items():
             st.write(("🟢 " if erro is None else "🔴 ") + nome)

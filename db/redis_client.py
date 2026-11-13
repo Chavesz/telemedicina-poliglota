@@ -16,7 +16,10 @@ import redis
 from db.config import REDIS_URL
 from db.oplog import registrar
 
-r = redis.Redis.from_url(REDIS_URL, decode_responses=True, socket_timeout=3, socket_connect_timeout=3)
+try:
+    r = redis.Redis.from_url(REDIS_URL, decode_responses=True, socket_timeout=3, socket_connect_timeout=3)
+except ValueError:  # URL mal preenchida: o app abre e mostra o Redis em vermelho em vez de quebrar
+    r = redis.Redis(host="redis-url-invalida", socket_timeout=1, socket_connect_timeout=1)
 
 TTL_SESSAO = 30 * 60
 TTL_ATENDIMENTO = 60 * 60
